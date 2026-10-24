@@ -1,13 +1,9 @@
-# ESP32 firmware starter
+# ESP32 통합 펌웨어 v3
 
-This starter targets an original ESP32 DevKit with its internal DAC on GPIO25
-connected to the ZK-502C AUX input. It uses the Arduino framework.
+Arduino: breath_esp32/breath_esp32.ino를 엽니다. config.h와 함께 복사하세요.
+Classic ESP32, Arduino-ESP32 2.0.17, Adafruit BNO08x 1.2.5, ArduinoJson 7.2.1.
+PlatformIO: 이 폴더에서 pio run.
+기본 OUTPUT_ENABLED=false입니다. 센서/BLE 확인 후, 앰프 입력 규격이 검증된 경우에만 변경하세요.
+설정과 현장 검증은 ../../docs/FIRMWARE_HANDOFF.md를 읽으세요.
+legacy는 이전 LSM6DSOX 예제이며 현재 웹과 호환되지 않습니다.
 
-Install these libraries in Arduino IDE or PlatformIO:
-
-- ArduinoJson 7
-- Adafruit LSM6DSOX
-- Adafruit Unified Sensor
-
-Before uploading, set the I2C and piezo pins in `src/main.cpp`. The same UUIDs
-must remain in the web app and firmware.

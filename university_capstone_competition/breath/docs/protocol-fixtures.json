@@ -1,0 +1,59 @@
+{
+  "info": {
+    "protocolVersion": 3,
+    "firmwareVersion": "3.0.0",
+    "audioSource": "esp32-dac",
+    "sensors": {
+      "imu": "BNO085",
+      "power": "INA226"
+    },
+    "outputMode": "common", "outputEnabled": true
+  },
+  "control": {
+    "type": "control",
+    "protocolVersion": 3,
+    "commandId": "cmd-001",
+    "sessionId": "session-001",
+    "command": "start",
+    "frequencyHz": 30,
+    "intensityPercent": 20,
+    "durationSeconds": 60
+  },
+  "ack": {
+    "type": "ack",
+    "protocolVersion": 3,
+    "commandId": "cmd-001",
+    "sessionId": "session-001",
+    "accepted": true
+  },
+  "telemetry": {
+    "type": "telemetry",
+    "protocolVersion": 3,
+    "bootId": "boot-001",
+    "sequence": 12,
+    "uptimeMs": 2400,
+    "sessionId": "session-001",
+    "status": "running",
+    "frequencyHz": 30,
+    "intensityPercent": 20,
+    "remainingSeconds": 58,
+    "imu": {
+      "ready": true,
+      "linearAcceleration": {
+        "x": 0.12,
+        "y": 0.08,
+        "z": 0.31
+      },
+      "accelerationRms": 0.245,
+      "sampleCount": 50,
+      "sampleRateHz": 250
+    },
+    "power": {
+      "ready": true,
+      "calibrated": true,
+      "busVoltageV": 19.95,
+      "currentA": 0.152,
+      "powerW": 3.032
+    }
+  }
+}
