@@ -12,8 +12,8 @@ export type ControlCommand = Settings & {
   command: "start" | "stop" | "update" | "sweep" | "heartbeat";
 };
 export type DeviceInfo = {
-  protocolVersion: 3; firmwareVersion: string; audioSource: "browser-bluetooth" | "esp32-dac";
-  sensors: { imu: "BNO085"; power: "INA226" }; outputMode: "dual-channel" | "common"; outputEnabled: boolean;
+  protocolVersion: 3; firmwareVersion: string; audioSource: "esp32-dac";
+  sensors: { imu: "BNO085"; power: "INA226" }; outputMode: "common"; outputEnabled: boolean;
 };
 export type Telemetry = {
   type: "telemetry"; protocolVersion: 3; bootId: string; sequence: number;
@@ -42,8 +42,8 @@ function id(value: unknown) { return typeof value === "string" && value.length <
 export function parseDeviceInfo(raw: string): DeviceInfo {
   const data: unknown = JSON.parse(raw);
   if (!record(data) || data.protocolVersion !== 3 || typeof data.firmwareVersion !== "string" ||
-    !["browser-bluetooth", "esp32-dac"].includes(String(data.audioSource)) || typeof data.outputEnabled !== "boolean" ||
-    !["dual-channel", "common"].includes(String(data.outputMode)) || !record(data.sensors) ||
+    data.audioSource !== "esp32-dac" || typeof data.outputEnabled !== "boolean" ||
+    data.outputMode !== "common" || !record(data.sensors) ||
     data.sensors.imu !== "BNO085" || data.sensors.power !== "INA226") {
     throw new Error("이 펌웨어는 BNO085·INA226 통신 규약 v3와 일치하지 않습니다. docs/BLE_PROTOCOL.md를 확인하세요.");
   }

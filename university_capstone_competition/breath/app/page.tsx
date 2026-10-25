@@ -15,7 +15,7 @@ export default function Dashboard() {
   const [intensity, setIntensity] = useState(20);
   const [minutes, setMinutes] = useState(1);
   const [area, setArea] = useState<StimulationArea>("both");
-  const [outputLabel, setOutputLabel] = useState("기본 오디오 출력");
+  const [outputLabel, setOutputLabel] = useState("ZK-502C를 오디오 출력으로 선택");
   const [outputConfirmed, setOutputConfirmed] = useState(false);
   const [audioMessage, setAudioMessage] = useState("");
   const [audioBusy, setAudioBusy] = useState(false);
@@ -46,19 +46,15 @@ export default function Dashboard() {
     setAudioBusy(true);
     try {
       const label = await session.current?.selectOutput();
-      if (label) { setOutputLabel(label); setOutputConfirmed(false); setAudioMessage("오디오 출력을 선택했습니다. 앰프에서 출력되는지 확인하세요."); }
-    } catch (error) {
-      setAudioMessage(error instanceof Error ? error.message : "오디오 출력을 선택할 수 없습니다.");
-    } finally { setAudioBusy(false); }
+      if (label) { setOutputLabel(label); setOutputConfirmed(false); setAudioMessage("출력을 선택했습니다. ZK-502C의 시험음을 먼저 확인하세요."); }
+    } catch (error) { setAudioMessage(error instanceof Error ? error.message : "오디오 출력을 선택할 수 없습니다."); }
+    finally { setAudioBusy(false); }
   }
   async function testAudio() {
     setAudioBusy(true);
-    try {
-      await session.current?.testAudio(area);
-      setAudioMessage("30 Hz · 5% 테스트음을 2초 동안 보냅니다.");
-    } catch (error) {
-      setAudioMessage(error instanceof Error ? error.message : "테스트음 오류");
-    } finally { setTimeout(() => setAudioBusy(false), 2200); }
+    try { await session.current?.testAudio(area); setAudioMessage("100 Hz · 10% 오디오 경로 시험음을 2초 동안 보냅니다."); }
+    catch (error) { setAudioMessage(error instanceof Error ? error.message : "시험음 오류"); }
+    finally { setTimeout(() => setAudioBusy(false), 2200); }
   }
 
   return <main className="shell">
@@ -73,9 +69,9 @@ export default function Dashboard() {
       </div>
     </dialog>
     <header className="topbar">
-      <div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡 제어 대시보드</h1><p className="subtitle">Bluetooth 2채널 진동 + BNO085 · INA226 센서</p></div>
+      <div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡 제어 대시보드</h1><p className="subtitle">ZK-502C Bluetooth 진동 + ESP32 BNO085 · INA226 센서</p></div>
       <div className="header-actions">
-        {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => session.current?.disconnect()}><span className="dot" />{view.mode === "demo" ? "데모 연결 해제" : "ESP32 연결 해제"}</button>
+        {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />{view.mode === "demo" ? "데모 연결 해제" : "ESP32 연결 해제"}</button>
           : <><button className="connection" disabled={locked} onClick={() => void session.current?.connect(false)}>ESP32 연결</button>
             <button className="secondary" disabled={locked} onClick={() => void session.current?.connect(true)}>장치 없이 데모</button></>}
       </div>
@@ -85,11 +81,11 @@ export default function Dashboard() {
 
     <section className="setup panel">
       <div className="panel-title"><h2>ZK-502C 오디오 연결</h2><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 확인 완료" : "출력 확인 필요"}</span></div>
-      <p className="helper">휴대폰/노트북 Bluetooth 오디오 → ZK-502C 앰프 → 상엽·하엽 진동자. ESP32는 BNO085·INA226 값을 BLE로 보냅니다.</p>
-      <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button><button className="secondary" disabled={locked || !outputConfirmed || view.mode === "demo"} onClick={() => void testAudio()}>2초 테스트음</button></div>
-      <label className="checkbox"><input type="checkbox" checked={outputConfirmed} disabled={locked} onChange={(event) => setOutputConfirmed(event.target.checked)} />ZK-502C가 현재 Bluetooth 오디오 출력이며 실제 진동을 확인했습니다.</label>
+      <p className="helper">노트북 → Bluetooth 오디오 → ZK-502C → 진동자. ESP32는 별도 BLE 연결로 BNO085·INA226 센서값만 보냅니다.</p>
+      <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button><button className="secondary" disabled={locked || view.mode === "demo"} onClick={() => void testAudio()}>2초 시험음</button></div>
+      <label className="checkbox"><input type="checkbox" checked={outputConfirmed} disabled={locked} onChange={(event) => setOutputConfirmed(event.target.checked)} />ZK-502C에서 시험음과 진동을 확인했습니다.</label>
       {audioMessage && <p className="helper" role="status">{audioMessage}</p>}
-      <p className="warning">앰프의 실제 볼륨과 액추에이터 상태에 따라 진동 세기가 달라집니다. 화면의 %는 안전한 실제 힘을 보장하지 않습니다.</p>
+      <p className="warning">화면의 출력 레벨 %는 실제 진동 힘을 보장하지 않습니다. 처음에는 5%부터 시험하세요.</p>
     </section>
 
     <section className="hero-card">
@@ -107,7 +103,7 @@ export default function Dashboard() {
         <Slider label="주파수" value={frequency} unit="Hz" min={25} max={40} step={1} disabled={view.sweeping || view.busy} onChange={setFrequency} />
         <Slider label="출력 레벨" value={intensity} unit="%" min={0} max={100} step={5} disabled={view.sweeping || view.busy} onChange={setIntensity} />
         <Slider label="작동 시간" value={minutes} unit="분" min={1} max={30} step={1} disabled={view.playing || view.busy} onChange={setMinutes} />
-        <p className="helper">상엽은 왼쪽 채널, 하엽은 오른쪽 채널로 보냅니다. 둘 다를 선택하면 양쪽 채널에 같은 주파수를 보냅니다.</p>
+        <p className="helper">상엽은 왼쪽 채널, 하엽은 오른쪽 채널로 보냅니다. 둘 다를 선택하면 양쪽에 같은 주파수를 보냅니다.</p>
         <div className="actions"><button className="start" disabled={!ready || locked || intensity === 0} onClick={() => void session.current?.start(settings, area)}>진동 시작</button>
           <button className="stop" disabled={!connected} onClick={() => { void session.current?.stop(); }}>정지</button></div>
         <p className="helper">작동 중 주파수·출력 레벨을 바꾼 뒤 설정 적용을 누르세요. 종료 시각은 유지됩니다.</p>
@@ -115,8 +111,8 @@ export default function Dashboard() {
 
       <aside className="side-stack">
         <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{view.mode === "demo" ? "DEMO" : connected ? "BLE" : "OFFLINE"}</span></div>
-          <Metric label="현재 측정 주파수" text={value(telemetry?.frequencyHz, "Hz", 0)} />
-          <Metric label="현재 출력 레벨" text={value(telemetry?.intensityPercent, "%", 0)} />
+          <Metric label="설정된 출력 주파수" text={view.playing ? value(frequency, "Hz", 0) : "—"} />
+          <Metric label="설정된 출력 레벨" text={view.playing ? value(intensity, "%", 0) : "—"} />
           <Metric label="남은 시간" text={view.playing && telemetry ? time(telemetry.remainingSeconds) : "--:--"} />
           <Metric label="펌웨어" text={view.info?.firmwareVersion ?? "—"} />
         </article>
@@ -150,7 +146,7 @@ export default function Dashboard() {
       {view.result && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>가속도 {view.result.peakAccelerationRms.toFixed(3)} m/s²</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
       {view.result?.warnings.map((warning) => <p className="warning" key={warning}>{warning}</p>)}
     </section>
-    <p className="footnote">화면을 벗어나거나 ESP32 센서 수신이 끊기면 브라우저 오디오를 정지합니다. 스윕 피크는 장치·패널·접촉부를 포함한 모형 측정값이며 임상 효과를 뜻하지 않습니다.</p>
+    <p className="footnote">브라우저 오디오 또는 ESP32 센서 연결이 끊기면 진동음을 정지합니다. 스윕 피크는 장치·패널·접촉부를 포함한 모형 측정값이며 임상 효과를 뜻하지 않습니다.</p>
   </main>;
 }
 

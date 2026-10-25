@@ -11,6 +11,10 @@ class Characteristic extends EventTarget {
   async startNotifications() {}
   emit(message) {
     const bytes = new TextEncoder().encode(JSON.stringify(message) + "\n");
+    this.emitBytes(bytes);
+  }
+  emitRaw(text) { this.emitBytes(new TextEncoder().encode(text)); }
+  emitBytes(bytes) {
     for (let index = 0; index < bytes.length; index += 20) {
       const chunk = bytes.slice(index, index + 20);
       this.value = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
@@ -62,4 +66,16 @@ test("command rejection never becomes success", async () => {
   rig(false); const client = new BreathBleClient();
   try { await client.connect(() => {}, () => {}, () => {}); await assert.rejects(client.send(fixture.control), /거절/); }
   finally { client.disconnect(); }
+});
+test("a malformed telemetry line is skipped without dropping the BLE connection", async () => {
+  const mock = rig(); const client = new BreathBleClient(); const received = []; const errors = []; let disconnected = 0;
+  try {
+    await client.connect((data) => received.push(data), () => disconnected++, (error) => errors.push(error));
+    mock.telemetry.emitRaw('{"type":"telemetry","protocolVersion":3,"broken":true\n');
+    assert.equal(mock.device.gatt.connected, true);
+    assert.equal(disconnected, 0);
+    assert.match(errors[0], /손상된 BLE 센서 프레임/);
+    mock.telemetry.emit(fixture.telemetry);
+    assert.equal(received.length, 1);
+  } finally { client.disconnect(); }
 });

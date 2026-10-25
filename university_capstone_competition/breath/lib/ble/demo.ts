@@ -13,7 +13,7 @@ export class DemoClient implements DeviceClient {
   async connect(onTelemetry: (data: Telemetry) => void, onDisconnect: () => void): Promise<DeviceInfo> {
     this.callback = onTelemetry; this.disconnected = onDisconnect; this.began = performance.now();
     this.timer = setInterval(() => this.emit(), 200); this.emit();
-    return { protocolVersion: 3, firmwareVersion: "demo-3.0", audioSource: "browser-bluetooth", sensors: { imu: "BNO085", power: "INA226" }, outputMode: "dual-channel", outputEnabled: true };
+    return { protocolVersion: 3, firmwareVersion: "demo-3.0", audioSource: "esp32-dac", sensors: { imu: "BNO085", power: "INA226" }, outputMode: "common", outputEnabled: true };
   }
   async send(command: ControlCommand) {
     if (!this.timer) throw new Error("데모 연결이 해제되었습니다.");

@@ -37,10 +37,20 @@ export class BreathBleClient implements DeviceClient {
       this.control = await service.getCharacteristic(BLE_CONTROL_UUID);
       this.telemetry = await service.getCharacteristic(BLE_TELEMETRY_UUID);
       this.notify = (event) => {
+        const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+        if (!value) return;
+        let messages;
         try {
-          const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
-          if (!value) return;
-          for (const message of this.frames.push(value)) {
+          messages = this.frames.push(value);
+        } catch (error) {
+          // Notifications are not acknowledged. A lost 20-byte fragment corrupts only that NDJSON line;
+          // keep the sensor connection alive so the following telemetry frame can recover it.
+          this.frames.reset();
+          this.onError?.("손상된 BLE 센서 프레임 1개를 건너뛰었습니다: " + (error instanceof Error ? error.message : "메시지 오류"));
+          return;
+        }
+        try {
+          for (const message of messages) {
             if (message.type === "ack") {
               if (this.pending?.id === message.commandId && this.pending.session === message.sessionId) {
                 const pending = this.pending; this.pending = undefined; clearTimeout(pending.timer);

@@ -3,7 +3,7 @@ type OutputMediaDevices = MediaDevices & { selectAudioOutput?: () => Promise<Med
 type RoutableContext = AudioContext & { setSinkId?: (deviceId: string) => Promise<void> };
 export type StimulationArea = "upper" | "lower" | "both";
 
-/** The browser is the A2DP audio source. ESP32 is ONLY the BLE sensor/measurement controller. */
+/** The browser is the A2DP audio source. ESP32 is only the BLE sensor controller. */
 export class TonePlayer {
   private context?: RoutableContext;
   private oscillators: OscillatorNode[] = [];
@@ -17,7 +17,7 @@ export class TonePlayer {
     if (!devices?.selectAudioOutput) throw new Error("이 브라우저에서는 Windows 소리 설정에서 ZK-502C를 기본 출력으로 선택해 주세요.");
     const selected = await devices.selectAudioOutput();
     const context = this.getContext();
-    if (!context.setSinkId) throw new Error("오디오 출력 선택을 지원하지 않습니다. Windows에서 기본 출력을 바꿔 주세요.");
+    if (!context.setSinkId) throw new Error("오디오 출력 선택을 지원하지 않습니다. Windows에서 ZK-502C를 기본 출력으로 선택해 주세요.");
     await context.setSinkId(selected.deviceId);
     this.outputId = selected.deviceId;
     return selected.label || "선택한 오디오 출력";
@@ -50,7 +50,6 @@ export class TonePlayer {
       oscillator.type = "sine";
       oscillator.frequency.setValueAtTime(hz, context.currentTime);
       gain.gain.setValueAtTime(0, context.currentTime);
-      // This is an application audio limit, not a calibrated actuator force.
       gain.gain.linearRampToValueAtTime(intensity / 100 * 0.35, context.currentTime + 0.04);
       panner.pan.setValueAtTime(panValue, context.currentTime);
       oscillator.connect(gain); gain.connect(panner); panner.connect(context.destination);
@@ -72,11 +71,9 @@ export class TonePlayer {
     clearTimeout(this.stopTimer); this.stopTimer = undefined;
     const oscillators = this.oscillators; this.oscillators = [];
     const gains = this.gains; this.gains = [];
-    if (this.context) {
-      for (const gain of gains) {
-        gain.gain.cancelScheduledValues(this.context.currentTime);
-        gain.gain.setValueAtTime(0, this.context.currentTime);
-      }
+    if (this.context) for (const gain of gains) {
+      gain.gain.cancelScheduledValues(this.context.currentTime);
+      gain.gain.setValueAtTime(0, this.context.currentTime);
     }
     for (const oscillator of oscillators) { try { oscillator.stop(); } catch { /* Already ended. */ } oscillator.disconnect(); }
   }
