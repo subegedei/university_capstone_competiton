@@ -6,6 +6,7 @@ import { SweepSample } from "../lib/analysis";
 import { StimulationArea } from "../lib/audio/tone";
 
 type SavedPreset = { name: string; frequency: number; intensity: number; minutes: number; area: StimulationArea };
+type Screen = "home" | "analysis" | "memory" | "settings";
 const presetKey = "breath-toktok-presets-v1";
 function isPreset(value: unknown): value is SavedPreset {
   if (!value || typeof value !== "object") return false;
@@ -28,9 +29,9 @@ export default function Dashboard() {
   const [audioMessage, setAudioMessage] = useState("");
   const [audioBusy, setAudioBusy] = useState(false);
   const [presets, setPresets] = useState<Array<SavedPreset | null>>([null, null, null, null, null]);
-  const [showConnect, setShowConnect] = useState(true);
+  const [screen, setScreen] = useState<Screen>("home");
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [bleSupported, setBleSupported] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { setBleSupported(window.isSecureContext && !!navigator.bluetooth); }, []);
   useEffect(() => {
     try {
@@ -41,9 +42,13 @@ export default function Dashboard() {
     } catch { /* A malformed local preset must not affect device controls. */ }
   }, []);
   useEffect(() => {
-    if (showConnect && view.mode === "offline") dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [showConnect, view.mode]);
+    if (!view.playing || view.sweeping) { setRemaining(null); return; }
+    const end = Date.now() + minutes * 60000;
+    const tick = () => setRemaining(Math.max(0, (end - Date.now()) / 1000));
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [view.playing, view.sweeping, minutes]);
   useEffect(() => {
     const controller = new MeasurementSession(setView); session.current = controller;
     const hidden = () => { if (document.hidden) { void controller.stop("화면을 벗어나 진동과 측정을 정지했습니다."); } };
@@ -63,7 +68,7 @@ export default function Dashboard() {
     setAudioBusy(true);
     try {
       const label = await session.current?.selectOutput();
-      if (label) { setOutputLabel(label); setOutputConfirmed(false); setAudioMessage("출력을 선택했습니다. ZK-502C의 시험음을 먼저 확인하세요."); }
+      if (label) { setOutputLabel(label); setOutputConfirmed(false); setAudioMessage("출력을 선택했습니다. ZK-502C 연결을 확인하세요."); }
     } catch (error) { setAudioMessage(error instanceof Error ? error.message : "오디오 출력을 선택할 수 없습니다."); }
     finally { setAudioBusy(false); }
   }
@@ -85,45 +90,36 @@ export default function Dashboard() {
   }
 
   return <main className="shell" id="home">
-    <a className="skip-link" href="#controls">진동 설정으로 바로가기</a>
-    <dialog ref={dialog} className="connect-dialog" aria-labelledby="connect-title" onCancel={() => setShowConnect(false)}>
-      <h2 id="connect-title">장치에 연결할까요?</h2>
-      <p>확인을 누른 뒤 브라우저 목록에서 Breath-ESP32를 선택하세요. 연결만으로 진동이 시작되지는 않습니다.</p>
-      {!bleSupported && <p className="warning">이 환경에서는 웹 Bluetooth를 사용할 수 없습니다. HTTPS의 Android Chrome 또는 컴퓨터 Chrome/Edge를 사용하세요. iPhone 기본 브라우저는 지원하지 않습니다.</p>}
-      <p role="status">{view.message}</p>
-      <div className="header-actions">
-        <button className="start" disabled={!bleSupported || view.busy} onClick={() => void session.current?.connect(false)}>확인 · ESP32 선택</button>
-        <button className="secondary" disabled={view.busy} onClick={() => setShowConnect(false)}>먼저 둘러보기</button>
-      </div>
-    </dialog>
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">🫁</span><div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡</h1><p className="subtitle">진동 제어 · 실시간 센서 모니터링</p></div></div>
+      <span className={"connection-indicator " + (connected ? "connected" : "")}><span className="dot" />{view.mode === "demo" ? "데모" : connected ? "ESP32 연결됨" : "연결 대기"}</span>
+      <nav className="section-nav" aria-label="주 메뉴">
+        {([ ["home", "home", "홈 · 제어"], ["analysis", "chart", "측정 · 분석"], ["memory", "memory", "메모리"], ["settings", "connection", "설정"] ] as const).map(([id, icon, label]) => <button key={id} type="button" className={screen === id ? "active" : ""} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><UiIcon kind={icon} /><span>{label}</span></button>)}
+      </nav>
+    </header>
+
+    {view.mode === "demo" && <div className="demo-banner" role="status">데모 모드 · 센서값과 스윕 결과는 가상 데이터입니다. 실제 소리는 재생하지 않습니다.</div>}
+
+    <section className="setup panel" id="connection" aria-labelledby="connection-heading" hidden={screen !== "settings"}>
+      <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">SYSTEM READY</p><h2 id="connection-heading">장치 연결 상태</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
+      {!bleSupported && <p className="warning">웹 Bluetooth를 지원하는 HTTPS 환경의 Android Chrome 또는 컴퓨터 Chrome/Edge를 사용하세요.</p>}
       <div className="header-actions">
         {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />{view.mode === "demo" ? "데모 연결 해제" : "ESP32 연결 해제"}</button>
           : <><button className="connection" disabled={locked} onClick={() => void session.current?.connect(false)}>ESP32 연결</button>
             <button className="secondary" disabled={locked} onClick={() => void session.current?.connect(true)}>장치 없이 데모</button></>}
       </div>
-    </header>
-
-    <nav className="section-nav" aria-label="대시보드 바로가기">
-      <a href="#home"><UiIcon kind="home" /><span>홈</span></a>
-      <a href="#controls"><UiIcon kind="wave" /><span>진동 / 강도</span></a>
-      <a href="#memory"><UiIcon kind="memory" /><span>메모리</span></a>
-      <a href="#sensors"><UiIcon kind="sensor" /><span>센서</span></a>
-      <a href="#sweep"><UiIcon kind="chart" /><span>스윕 분석</span></a>
-    </nav>
-
-    {view.mode === "demo" && <div className="demo-banner" role="status">데모 모드 · 센서값과 스윕 결과는 가상 데이터입니다. 실제 소리는 재생하지 않습니다.</div>}
-
-    <section className="setup panel" id="connection" aria-labelledby="connection-heading">
-      <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">SYSTEM READY</p><h2 id="connection-heading">장치 연결 상태</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
       <p className="helper">ESP32는 센서값을 전송하고, 노트북 오디오 출력은 ZK-502C로 전달됩니다.</p>
       <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button></div>
       <label className="checkbox"><input type="checkbox" checked={outputConfirmed} disabled={locked} onChange={(event) => setOutputConfirmed(event.target.checked)} />ZK-502C 출력 준비를 확인했습니다.</label>
       {audioMessage && <p className="helper" role="status">{audioMessage}</p>}
     </section>
 
-    <section className="hero-card">
+    <section className="home-summary hero-card" hidden={screen !== "home"}>
+      <div><p className="eyebrow">SESSION OVERVIEW</p><h2>{view.playing && !view.sweeping ? "남은 시간" : "설정 시간"}</h2><strong>{view.playing && !view.sweeping && remaining !== null ? time(remaining) : time(minutes * 60)}</strong><p className="hero-note">선택 설정 · {frequency} Hz · {intensity}% · {areaLabel(area)}</p></div>
+      <div className="status"><span className={"badge " + (view.playing ? "running" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? "작동 중" : "대기 중"}</span><p>{view.message}</p>{!connected && <button className="summary-link" onClick={() => setScreen("settings")}>장치 연결이 필요합니다 · 설정으로 이동 →</button>}</div>
+    </section>
+
+    <section className="hero-card" hidden={screen !== "analysis"}>
       <div><p className="eyebrow">{view.resultMode === "demo" ? "DEMO RESPONSE PEAK" : "MEASURED RESPONSE PEAK"}</p><h2>측정 응답 피크 주파수</h2>
         <strong>{view.result ? view.result.estimatedResonanceHz : "—"}<small> Hz</small></strong><p className="hero-note">{view.result ? (view.resultMode === "demo" ? "가상 스윕 결과" : "장치·패널·접촉부를 포함한 시스템의 응답 피크") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
       <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
@@ -131,8 +127,8 @@ export default function Dashboard() {
     </section>
     <p className="mobile-message" aria-live="polite">{view.message}</p>
 
-    <section className="layout">
-      <article className="panel controls" id="controls" aria-labelledby="controls-heading">
+    <section className={"layout screen-" + screen}>
+      <article className="panel controls" id="controls" aria-labelledby="controls-heading" hidden={screen !== "home"}>
         <div className="panel-title"><div><p className="eyebrow">VIBRATION / INTENSITY</p><h2 id="controls-heading">진동 · 강도 설정</h2></div><button className="link" disabled={!view.playing || view.busy || view.sweeping} onClick={() => void session.current?.update(settings)}>설정 적용</button></div>
         <div className="setting-preview"><div><span className="preview-label">선택한 주파수</span><strong>{frequency}<small> Hz</small></strong><span className="preview-description">출력 레벨 {intensity}% · 설정 시간 {minutes}분</span></div><div className="wave-art" aria-hidden="true">{[18, 30, 52, 76, 44, 24, 54, 88, 64, 34, 18, 42, 64, 32, 18].map((height, i) => <i key={i} style={{ height: `${height}%` }} />)}</div></div>
         <div className="channels" role="group" aria-label="진동 위치 선택"><span>진동 위치</span><div><button className={"channel " + (area === "upper" ? "selected" : "")} disabled={locked} onClick={() => setArea("upper")}>상엽</button><button className={"channel " + (area === "lower" ? "selected" : "")} disabled={locked} onClick={() => setArea("lower")}>하엽</button><button className={"channel " + (area === "both" ? "selected" : "")} disabled={locked} onClick={() => setArea("both")}>둘 다</button></div></div>
@@ -145,9 +141,10 @@ export default function Dashboard() {
         <p className="helper">작동 중 주파수·출력 레벨을 바꾼 뒤 설정 적용을 누르세요. 종료 시각은 유지됩니다.</p>
       </article>
 
-      <article className="panel memory" id="memory" aria-labelledby="memory-heading">
+      <article className="panel memory" id="memory" aria-labelledby="memory-heading" hidden={screen !== "memory"}>
         <div className="panel-title"><div><p className="eyebrow">MEMORY PRESETS</p><h2 id="memory-heading">자주 쓰는 설정</h2></div><span className="tag">이 브라우저에 저장</span></div>
         <p className="helper">불러오기는 화면의 설정값만 바꾸며, 진동을 자동 시작하지 않습니다.</p>
+        <div className="preset-overview" aria-label="저장된 설정의 주파수 비교">{presets.map((preset, index) => <div className="overview-item" key={index}><div className="overview-bar"><span style={{ height: preset ? `${(preset.frequency / 40) * 100}%` : "0%" }} /></div><b>M{index + 1}</b><small>{preset ? `${preset.frequency} Hz` : "비어 있음"}</small></div>)}</div>
         <div className="preset-grid">
           {presets.map((preset, index) => <div className={"preset " + (preset ? "saved" : "empty-preset")} key={index}>
             <strong>M{index + 1}</strong>
@@ -156,11 +153,11 @@ export default function Dashboard() {
         </div>
       </article>
 
-      <aside className="side-stack" id="sensors" aria-label="실시간 센서 상태">
+      <aside className="side-stack" id="sensors" aria-label="실시간 센서 상태" hidden={screen !== "analysis"}>
         <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{view.mode === "demo" ? "DEMO" : connected ? "BLE" : "OFFLINE"}</span></div>
           <Metric label="설정된 출력 주파수" text={view.playing ? value(frequency, "Hz", 0) : "—"} />
           <Metric label="설정된 출력 레벨" text={view.playing ? value(intensity, "%", 0) : "—"} />
-          <Metric label="남은 시간" text={view.playing && telemetry ? time(telemetry.remainingSeconds) : "--:--"} />
+          <Metric label="남은 시간" text={view.playing && !view.sweeping && remaining !== null ? time(remaining) : "--:--"} />
           <Metric label="펌웨어" text={view.info?.firmwareVersion ?? "—"} />
         </article>
         <article className="panel sensor"><div className="panel-title"><h2>BNO085 · 선형 가속도</h2><span className={"tag " + (telemetry?.imu.ready ? "good" : "")}>{telemetry ? (telemetry.imu.ready ? "수신 중" : "센서 미준비") : "대기"}</span></div>
@@ -177,10 +174,10 @@ export default function Dashboard() {
       </aside>
     </section>
 
-    <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading">
+    <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
       {view.samples.length === 6 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 20–45 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
-        <button className="start" disabled={!ready || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button></div></div>
+        <button className="start" disabled={!ready || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
       <p className="helper">20·25·30·35·40·45 Hz 여섯 구간을 측정합니다. 출력 레벨과 앰프 볼륨은 측정 중 유지하세요.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + " / 6 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />
