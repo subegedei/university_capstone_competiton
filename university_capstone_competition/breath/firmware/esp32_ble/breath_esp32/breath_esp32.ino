@@ -31,6 +31,11 @@ struct OutputState {
 } output;
 struct Frame { uint32_t generation; char text[1400]; };
 bool imuFound = false, imuReady = false, powerReady = false, sweeping = false;
+bool inaConfigured = false;
+uint8_t bnoAddress = 0, inaAddress = 0;
+uint8_t imuInitFailures = 0;
+uint32_t lastSensorRetry = 0, imuInitAt = 0;
+constexpr uint32_t SENSOR_RETRY_MS = 5000;
 String sessionId, bootId, recentIds[8], recentAcks[8];
 unsigned recentNext = 0;
 uint32_t sequence = 0, lastImu = 0, windowStart = 0, sampleCount = 0, seenGeneration = 0;
@@ -107,27 +112,90 @@ class ControlCallbacks : public BLECharacteristicCallbacks {
     }
   }
 };
-bool readRegister(uint8_t reg, uint16_t &value) {
-  Wire.beginTransmission(INA_ADDRESS); Wire.write(reg);
+bool readRegister(uint8_t address, uint8_t reg, uint16_t &value) {
+  Wire.beginTransmission(address); Wire.write(reg);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(INA_ADDRESS, uint8_t(2)) != 2) return false;
+  if (Wire.requestFrom(address, uint8_t(2)) != 2) return false;
   value = (uint16_t(Wire.read()) << 8) | Wire.read(); return true;
 }
-bool writeRegister(uint8_t reg, uint16_t value) {
-  Wire.beginTransmission(INA_ADDRESS); Wire.write(reg); Wire.write(value >> 8); Wire.write(value & 255);
+bool writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
+  Wire.beginTransmission(address); Wire.write(reg); Wire.write(value >> 8); Wire.write(value & 255);
   return Wire.endTransmission() == 0;
 }
 void readPower() {
   uint16_t bus, shunt, manufacturer, die;
-  powerReady = readRegister(0xFE, manufacturer) && manufacturer == 0x5449 &&
-    readRegister(0xFF, die) && (die & 0xFFF0) == 0x2260 &&
-    readRegister(0x02, bus) && readRegister(0x01, shunt);
+  powerReady = inaConfigured && inaAddress && readRegister(inaAddress, 0xFE, manufacturer) && manufacturer == 0x5449 &&
+    readRegister(inaAddress, 0xFF, die) && (die & 0xFFF0) == 0x2260 &&
+    readRegister(inaAddress, 0x02, bus) && readRegister(inaAddress, 0x01, shunt);
   if (powerReady) {
     voltage = bus * 0.00125f;
     current = SHUNT_OHMS > 0 ? int16_t(shunt) * 0.0000025f / SHUNT_OHMS : 0;
+  } else if (inaConfigured) {
+    inaConfigured = false; inaAddress = 0;
+    Serial.println("INA226: read failed; will retry configuration");
   }
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
+uint8_t probeI2C(uint8_t address) {
+  Wire.beginTransmission(address);
+  return Wire.endTransmission();
+}
+void retrySensors() {
+  if (imuFound && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
+    stopOutput();
+    Serial.println("BNO085: no data for 5 seconds; restarting sensor session");
+    imuFound = false; imuReady = false; lastImu = 0;
+    sh2_close();
+  }
+  if (!imuFound) {
+    const uint8_t bnoCandidates[] = { BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE };
+    uint8_t timeouts = 0;
+    bool response = false;
+    for (uint8_t address : bnoCandidates) {
+      const uint8_t result = probeI2C(address);
+      if (result == 5) { ++timeouts; continue; }
+      if (result != 0) continue;
+      response = true;
+      if (imuInitFailures >= 3) { Serial.println("BNO085: initialization failed 3 times; reset ESP32 to retry"); break; }
+      Serial.printf("BNO085: 0x%02X responding; initializing\n", address);
+      const bool initialized = bno.begin_I2C(address, &Wire);
+      if (initialized && bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
+        bnoAddress = address; imuFound = true; imuInitFailures = 0; imuInitAt = millis(); lastImu = 0;
+        Serial.println("BNO085: initialized; waiting for acceleration data");
+        break;
+      }
+      ++imuInitFailures;
+      Serial.println("BNO085: initialization or acceleration report setup failed; retrying");
+      if (initialized) sh2_close();
+    }
+    if (!response) Serial.printf("BNO085: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
+      BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, timeouts);
+  }
+  if (!inaConfigured) {
+    uint8_t timeouts = 0;
+    bool response = false;
+    for (uint8_t address = INA_ADDRESS_MIN; address <= INA_ADDRESS_MAX; ++address) {
+      const uint8_t result = probeI2C(address);
+      if (result == 5) { ++timeouts; continue; }
+      if (result != 0) continue;
+      response = true;
+      uint16_t manufacturer = 0, die = 0;
+      if (!readRegister(address, 0xFE, manufacturer) || !readRegister(address, 0xFF, die)) {
+        Serial.printf("INA226: 0x%02X responds, but identification read failed\n", address);
+      } else if (manufacturer != 0x5449 || (die & 0xFFF0) != 0x2260) {
+        Serial.printf("INA226: 0x%02X is not INA226 (manufacturer=0x%04X die=0x%04X)\n", address, manufacturer, die);
+      } else if (!writeRegister(address, 0x00, 0x4127)) {
+        Serial.printf("INA226: 0x%02X configuration write failed; retrying\n", address);
+      } else {
+        inaAddress = address; inaConfigured = true;
+        Serial.printf("INA226: 0x%02X configured; waiting for readings\n", address);
+        break;
+      }
+    }
+    if (!response) Serial.printf("INA226: no response from 0x%02X to 0x%02X (%u timeout(s))\n",
+      INA_ADDRESS_MIN, INA_ADDRESS_MAX, timeouts);
+  }
+}
 void handleCommand(const Frame &frame) {
   if (!connected.load() || frame.generation != generation.load()) return;
   JsonDocument cmd;
@@ -212,16 +280,6 @@ void setup() {
   esp_timer_handle_t timer;
   ESP_ERROR_CHECK(esp_timer_create(&args, &timer));
   ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 1000));
-  Wire.begin(SDA_PIN, SCL_PIN); Wire.setTimeOut(20);
-  Serial.println("I2C scan (keep actuator power disconnected):");
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    if (Wire.endTransmission() == 0) Serial.printf("0x%02X\n", address);
-  }
-  imuFound = bno.begin_I2C(BNO_ADDRESS, &Wire);
-  if (imuFound) imuFound = bno.enableReport(SH2_LINEAR_ACCELERATION, 4000);
-  Wire.setClock(400000); Wire.setTimeOut(20);
-  writeRegister(0x00, 0x4127);
   bootId = String((uint32_t)esp_random(), HEX);
   BLEDevice::init("Breath-ESP32");
   auto server = BLEDevice::createServer(); server->setCallbacks(new ServerCallbacks());
@@ -241,6 +299,12 @@ void setup() {
   if (xTaskCreate(transmit, "ble-tx", 4096, nullptr, 1, nullptr) != pdPASS) abort();
   resetWindow();
   Serial.printf("BLE ready, OUTPUT_ENABLED=%d. No automatic start.\n", OUTPUT_ENABLED);
+  // Diagnose the shared sensor bus at 100 kHz before considering a faster bus.
+  Wire.begin(SDA_PIN, SCL_PIN); Wire.setClock(100000); Wire.setTimeOut(20);
+  Serial.printf("I2C: SDA=%d SCL=%d; BNO085=0x%02X/0x%02X INA226=0x%02X..0x%02X; 100 kHz diagnostic; retry every 5 seconds\n",
+    SDA_PIN, SCL_PIN, BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, INA_ADDRESS_MIN, INA_ADDRESS_MAX);
+  retrySensors();
+  lastSensorRetry = millis();
 }
 void loop() {
   if (advertiseAgain.exchange(false)) BLEDevice::startAdvertising();
@@ -250,10 +314,20 @@ void loop() {
   }
   Frame frame;
   if (xQueueReceive(rxQueue, &frame, 0) == pdTRUE) handleCommand(frame);
+  if (millis() - lastSensorRetry >= SENSOR_RETRY_MS) {
+    lastSensorRetry = millis();
+    retrySensors();
+  }
   if (imuFound) {
-    if (bno.wasReset()) { stopOutput(); lastImu = 0; resetWindow(); bno.enableReport(SH2_LINEAR_ACCELERATION, 4000); }
+    if (bno.wasReset()) {
+      stopOutput(); lastImu = 0; imuInitAt = millis(); resetWindow();
+      if (!bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
+        Serial.println("BNO085: report setup after reset failed; retrying");
+        imuFound = false; imuReady = false; sh2_close();
+      }
+    }
     sh2_SensorValue_t event;
-    if (bno.getSensorEvent(&event) && event.sensorId == SH2_LINEAR_ACCELERATION) {
+    if (imuFound && bno.getSensorEvent(&event) && event.sensorId == SH2_LINEAR_ACCELERATION) {
       ax = event.un.linearAcceleration.x; ay = event.un.linearAcceleration.y; az = event.un.linearAcceleration.z;
       if (isfinite(ax) && isfinite(ay) && isfinite(az)) {
         sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
