@@ -19,7 +19,7 @@ outputEnabled는 설정 허용 여부이지 전기적 안전 인증이 아닙니
 Control/Notify는 UTF-8 NDJSON(마지막 LF), ATT 청크 최대 20바이트.
 한 청크가 JSON 한 개라는 가정은 금지합니다. Notify의 ACK와 telemetry는 직렬로 전송합니다.
 명령은 type, protocolVersion, commandId, sessionId, command, frequencyHz, intensityPercent, durationSeconds를 포함합니다.
-주파수 15–50Hz, 레벨 0–100%, 시간 정수 1–1800초.
+주파수 25–40Hz, 레벨 0–100%, 시간 정수 1–1800초. 45Hz 이상은 하드웨어 보호를 위해 펌웨어와 웹 통신 규약 양쪽에서 거절합니다.
 start/sweep는 새로운 세션을 시작, update는 같은 세션에서 주파수·레벨만 변경하며 종료 시각은 유지합니다.
 stop은 현재 출력을 정지합니다. 재연결하면 자동 시작하지 않습니다.
 heartbeat는 같은 활성 세션의 유지 신호입니다. 설정/종료 시각을 바꾸지 않습니다.
@@ -30,7 +30,7 @@ ACK는 같은 commandId/sessionId와 accepted를 포함하며 거절에는 error
 
 ## 센서 데이터
 
-약 250ms 윈도우. 선형 가속도 단위 m/s², RMS는 각 축의 창 평균(DC 바이어스)을 제거한 뒤의 `sqrt(mean(x²+y²+z²))`입니다. 이 값은 원시 가속도 지표이며 공명 주파수 선택에 직접 최댓값으로 쓰면 안 됩니다. 스윕 분석은 구동 주파수 f마다 `accelerationRms / (2πf)²`를 사용해 변위 RMS(m)로 환산합니다.
+약 250ms 윈도우. 선형 가속도 단위 m/s², RMS는 sqrt(mean(x²+y²+z²))입니다. 이 값은 원시 가속도 지표이며 공명 주파수 선택에 직접 최댓값으로 쓰면 안 됩니다. 스윕 분석은 구동 주파수 f마다 `accelerationRms / (2πf)²`를 사용해 변위 RMS(m)로 환산합니다.
 sampleRateHz는 실제 수집 개수/윈도우 경과 시간입니다. 요청 주기 4000us가 실제 250Hz를 보장하지 않습니다.
 스윕은 최소 200Hz, 안정화 후 주파수당 2개 이상 윈도우를 요구합니다.
 INA226 버스전압 V, 전류 A, 전력 W. SHUNT_OHMS 확인 전 currentA/powerW=null.

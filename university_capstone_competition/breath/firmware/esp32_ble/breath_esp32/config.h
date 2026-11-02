@@ -15,3 +15,6 @@ constexpr float SHUNT_OHMS = 0.100f;
 // DAC codes, not a validated safe force. Idle code 128 is DC bias.
 constexpr int MAX_DAC_AMPLITUDE = 24;
 constexpr int LEASE_MS = 5000;
+// Hardware protection: this prototype must never drive at or above 45 Hz.
+constexpr float MIN_STIMULATION_FREQUENCY_HZ = 25.0f;
+constexpr float MAX_STIMULATION_FREQUENCY_HZ = 40.0f;

@@ -1,6 +1,6 @@
 import { BreathBleClient } from "./ble/client";
 import { DemoClient } from "./ble/demo";
-import { ControlCommand, DeviceClient, DeviceInfo, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
+import { ControlCommand, DeviceClient, DeviceInfo, MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
 import { SweepResult, SweepSample, analyseSweep } from "./analysis";
 import { StimulationArea, TonePlayer } from "./audio/tone";
 
@@ -13,7 +13,10 @@ const initialView: SessionView = {
   mode: "offline", info: null, telemetry: null, busy: false, playing: false, sweeping: false,
   progress: 0, sweepHz: null, message: "ESP32에 연결해 센서 상태를 확인하세요.", result: null, samples: [], resultMode: null,
 };
-const sweepFrequencies = [20, 25, 30, 35, 40, 45];
+const sweepFrequencies = Array.from(
+  { length: MAX_STIMULATION_FREQUENCY_HZ - MIN_STIMULATION_FREQUENCY_HZ + 1 },
+  (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
+);
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -125,8 +128,8 @@ export class MeasurementSession {
   selectOutput() { return this.audio.selectOutput(); }
   async testAudio(area: StimulationArea) {
     await this.audio.prepare();
-    // Routing check only: 100 Hz is easier to hear/feel than the normal 20–45 Hz test range.
-    this.audio.start(100, 10, 2, area);
+    // Never exceed the device-safe sweep range, including during a routing check.
+    this.audio.start(35, 10, 2, area);
   }
 
   private ensureReady(settings: Settings) {
@@ -200,7 +203,7 @@ export class MeasurementSession {
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, 70, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, 70000);
       this.startHeartbeat();
-      this.patch({ playing: true, sweeping: true, message: "20–45 Hz를 5 Hz 간격으로 측정합니다. 출력 레벨은 일정하게 유지됩니다." });
+      this.patch({ playing: true, sweeping: true, message: "25–40 Hz를 1 Hz 간격으로 측정합니다. 출력 레벨은 일정하게 유지됩니다." });
       const samples: SweepSample[] = [];
       const settlingMs = mode === "demo" ? 200 : 1200;
       const measuringMs = mode === "demo" ? 450 : 1200;

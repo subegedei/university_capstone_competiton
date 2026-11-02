@@ -32,6 +32,7 @@ test("device info rejects obsolete hardware and control enforces bounded duratio
   assert(chunks.every((chunk) => chunk.length <= 20));
   assert.equal(new TextDecoder().decode(Buffer.concat(chunks)).endsWith("\n"), true);
   assert.throws(() => encodeCommand({ ...fixture.control, durationSeconds: 0 }));
+  assert.throws(() => encodeCommand({ ...fixture.control, frequencyHz: 45 }));
   assert.throws(() => encodeCommand({ ...fixture.control, frequencyHz: 51 }));
 });
 test("v3 output capability and heartbeat are explicit", () => {

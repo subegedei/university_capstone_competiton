@@ -35,8 +35,8 @@ def analyse_sweep(samples: list[dict]) -> dict:
     if len({sample["hz"] for sample in ordered}) != len(ordered):
         raise ValueError("Duplicate frequencies are not allowed; aggregate RMS windows first.")
     for sample in ordered:
-        if not isfinite(sample["hz"]) or not 15 <= sample["hz"] <= 50:
-            raise ValueError("Frequencies must be finite and between 15 and 50 Hz.")
+        if not isfinite(sample["hz"]) or not 25 <= sample["hz"] <= 40:
+            raise ValueError("Frequencies must be finite and between 25 and 40 Hz.")
         if not isfinite(sample["accelerationRms"]) or sample["accelerationRms"] < 0:
             raise ValueError("Acceleration RMS must be finite and nonnegative.")
     displacements = [displacement_rms_m(sample["hz"], sample["accelerationRms"]) for sample in ordered]
@@ -66,8 +66,8 @@ def analyse_sweep(samples: list[dict]) -> dict:
         warnings.append("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.")
     if sum(abs(score - peak_score) <= max(peak_score, 1e-12) * 1e-6 for score in scores) > 1:
         warnings.append("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.")
-    if ordered[0]["hz"] != 15 or ordered[-1]["hz"] != 50:
-        warnings.append("15–50 Hz 전체 범위가 수집되지 않았습니다.")
+    if ordered[0]["hz"] != 25 or ordered[-1]["hz"] != 40:
+        warnings.append("25–40 Hz 전체 범위가 수집되지 않았습니다.")
     if has_current:
         warnings.append("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.")
     else:

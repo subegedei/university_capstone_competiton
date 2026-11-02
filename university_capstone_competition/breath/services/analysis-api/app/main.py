@@ -17,7 +17,7 @@ async def invalid_request(_request, error: RequestValidationError):
 
 class SweepSample(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False, extra="forbid")
-    hz: float = Field(ge=15, le=50)
+    hz: float = Field(ge=25, le=40)
     accelerationRms: float = Field(ge=0)
     busVoltageV: float | None = Field(default=None, ge=0)
     currentA: float | None = Field(default=None, ge=0)

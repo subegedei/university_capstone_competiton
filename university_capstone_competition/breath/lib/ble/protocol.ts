@@ -5,6 +5,10 @@ export const BLE_INFO_UUID = "f3f1a003-7c5b-4f18-b0bb-7d9cb9d00001";
 export const PROTOCOL_VERSION = 3;
 export const COMMAND_TIMEOUT_MS = 5000;
 export const TELEMETRY_TIMEOUT_MS = 4000;
+// Hardware-safe operating envelope. Keep this guard in the browser protocol
+// as well as in the ESP32 firmware so a stale UI cannot request 45 Hz.
+export const MIN_STIMULATION_FREQUENCY_HZ = 25;
+export const MAX_STIMULATION_FREQUENCY_HZ = 40;
 export type DeviceStatus = "idle" | "running" | "sweeping" | "error";
 export type Settings = { frequencyHz: number; intensityPercent: number; durationSeconds: number };
 export type ControlCommand = Settings & {
@@ -57,7 +61,7 @@ export function parseDeviceMessage(raw: string): DeviceMessage {
       (data.error === undefined || typeof data.error === "string")) return data as Ack;
   if (data.type !== "telemetry" || !id(data.bootId) || !data.bootId || !Number.isSafeInteger(data.sequence) || !numberIn(data.sequence, 0) ||
       !numberIn(data.uptimeMs, 0) || !["idle", "running", "sweeping", "error"].includes(String(data.status)) ||
-      !numberIn(data.frequencyHz, 15, 50) || !numberIn(data.intensityPercent, 0, 100) || !numberIn(data.remainingSeconds, 0, 1800) ||
+      !numberIn(data.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) || !numberIn(data.intensityPercent, 0, 100) || !numberIn(data.remainingSeconds, 0, 1800) ||
       !record(data.imu) || !record(data.power) || typeof data.imu.ready !== "boolean" || typeof data.power.ready !== "boolean" ||
       typeof data.power.calibrated !== "boolean" || !optionalNumber(data.imu.accelerationRms, 0) ||
       !Number.isSafeInteger(data.imu.sampleCount) || !numberIn(data.imu.sampleCount, 0) || !numberIn(data.imu.sampleRateHz, 0) ||
@@ -85,7 +89,7 @@ export class JsonLineDecoder {
 export function encodeCommand(command: ControlCommand): Uint8Array[] {
   if (command.type !== "control" || command.protocolVersion !== 3 ||
       !["start", "stop", "update", "sweep", "heartbeat"].includes(command.command) ||
-      !id(command.commandId) || !id(command.sessionId) || !numberIn(command.frequencyHz, 15, 50) || !numberIn(command.intensityPercent, 0, 100) ||
+      !id(command.commandId) || !id(command.sessionId) || !numberIn(command.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) || !numberIn(command.intensityPercent, 0, 100) ||
       !Number.isInteger(command.durationSeconds) || !numberIn(command.durationSeconds, 1, 1800) || !command.sessionId || !command.commandId) {
     throw new Error("주파수·강도·시간 설정을 확인하세요.");
   }

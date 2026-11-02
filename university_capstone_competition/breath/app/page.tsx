@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MeasurementSession, SessionView, initialView } from "../lib/session";
+import { MeasurementSession, SessionView, initialView, sweepFrequencies } from "../lib/session";
 import { displacementRmsM, SweepSample } from "../lib/analysis";
 import { StimulationArea } from "../lib/audio/tone";
 
@@ -74,7 +74,7 @@ export default function Dashboard() {
   }
   async function testAudio() {
     setAudioBusy(true);
-    try { await session.current?.testAudio(area); setAudioMessage("100 Hz · 10% 오디오 경로 시험음을 2초 동안 보냅니다."); }
+    try { await session.current?.testAudio(area); setAudioMessage("35 Hz · 10% 오디오 경로 시험음을 2초 동안 보냅니다."); }
     catch (error) { setAudioMessage(error instanceof Error ? error.message : "시험음 오류"); }
     finally { setTimeout(() => setAudioBusy(false), 2200); }
   }
@@ -176,9 +176,9 @@ export default function Dashboard() {
 
     <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
       {view.samples.length === 6 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
-      <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 20–45 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
+      <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
         <button className="start" disabled={!ready || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
-      <p className="helper">20·25·30·35·40·45 Hz 여섯 구간을 측정합니다. 출력 레벨과 앰프 볼륨은 측정 중 유지하세요.</p>
+      <p className="helper">25–40 Hz를 1 Hz 간격으로 16구간 측정합니다. 45 Hz 이상은 하드웨어 보호를 위해 사용하지 않습니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + " / 6 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />
       {view.samples.length > 0 ? <>
@@ -205,14 +205,15 @@ function UiIcon({ kind }: { kind: "home" | "connection" | "wave" | "memory" | "s
 function Metric({ label, text }: { label: string; text: string }) { return <div className="metric"><span>{label}</span><b>{text}</b></div>; }
 function areaLabel(area: StimulationArea) { return area === "upper" ? "상엽" : area === "lower" ? "하엽" : "둘 다"; }
 function ResponseChart({ samples }: { samples: SweepSample[] }) {
-  if (!samples.length) return <div className="chart-empty"><UiIcon kind="chart" /><strong>아직 측정한 데이터가 없어요</strong><span>스윕을 시작하면 주파수별 응답 곡선이 표시됩니다.</span><div className="frequency-markers" aria-hidden="true">{[20, 25, 30, 35, 40, 45].map(hz => <span key={hz}>{hz}<small> Hz</small></span>)}</div></div>;
+  if (!samples.length) return <div className="chart-empty"><UiIcon kind="chart" /><strong>아직 측정한 데이터가 없어요</strong><span>스윕을 시작하면 주파수별 응답 곡선이 표시됩니다.</span><div className="frequency-markers" aria-hidden="true">{sweepFrequencies.filter((hz) => hz % 3 === 1 || hz === sweepFrequencies[0] || hz === sweepFrequencies.at(-1)).map(hz => <span key={hz}>{hz}<small> Hz</small></span>)}</div></div>;
   const responses = samples.map(displacementRmsM);
   const maximum = Math.max(1e-8, ...responses);
-  const points = samples.map((sample, index) => (45 + (sample.hz - 20) / 25 * 680) + "," + (170 - responses[index] / maximum * 135)).join(" ");
+  const firstHz = sweepFrequencies[0], lastHz = sweepFrequencies.at(-1) ?? firstHz;
+  const points = samples.map((sample, index) => (45 + (sample.hz - firstHz) / (lastHz - firstHz) * 680) + "," + (170 - responses[index] / maximum * 135)).join(" ");
   return <svg className="chart" viewBox="0 0 760 215" role="img" aria-label="주파수별 환산 변위 RMS 응답 곡선">
-    <title>20–45 Hz 환산 변위 RMS</title><text x="12" y="18">μm RMS</text><text x="12" y="40">{(maximum * 1e6).toFixed(2)}</text>
+    <title>25–40 Hz 환산 변위 RMS</title><text x="12" y="18">μm RMS</text><text x="12" y="40">{(maximum * 1e6).toFixed(2)}</text>
     <line x1="45" x2="725" y1="170" y2="170" stroke="var(--line)" /><line x1="45" x2="725" y1="100" y2="100" stroke="var(--line)" />
     <polyline points={points} fill="none" stroke="var(--blue)" strokeWidth="3" />
-    {[20, 25, 30, 35, 40, 45].map((hz) => <text key={hz} x={45 + (hz - 20) / 25 * 680} y="195" textAnchor="middle">{hz}</text>)}<text x="743" y="195">Hz</text>
+    {sweepFrequencies.filter((hz) => hz % 2 === 1 || hz === firstHz || hz === lastHz).map((hz) => <text key={hz} x={45 + (hz - firstHz) / (lastHz - firstHz) * 680} y="195" textAnchor="middle">{hz}</text>)}<text x="743" y="195">Hz</text>
   </svg>;
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { displacementRmsM, type SweepSample } from "../../../../lib/analysis";
+import { MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ } from "../../../../lib/ble/protocol";
 
 type SweepResult = {
   estimatedResonanceHz: number;
@@ -27,7 +28,7 @@ function validSample(value: unknown): value is SweepSample {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const sample = value as Record<string, unknown>;
   if (Object.keys(sample).some((key) => !sampleKeys.has(key))) return false;
-  return finiteNumber(sample.hz, 15, 50) && finiteNumber(sample.accelerationRms, 0) &&
+  return finiteNumber(sample.hz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) && finiteNumber(sample.accelerationRms, 0) &&
     finiteNumber(sample.windowCount, 2) && Number.isInteger(sample.windowCount) &&
     finiteNumber(sample.sampleCount, 1) && Number.isInteger(sample.sampleCount) &&
     finiteNumber(sample.sampleRateHz, 200) && nullableFiniteNumber(sample.busVoltageV, 0) &&
@@ -64,7 +65,7 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   if (peak.hz === ordered[0].hz || peak.hz === ordered[ordered.length - 1].hz) warnings.push("피크가 스윕 범위의 끝에 있어 범위 밖의 피크를 구분할 수 없습니다.");
   if (prominence < 0.1) warnings.push("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.");
   if (scores.filter((score) => Math.abs(score - peakScore) <= Math.max(peakScore, 1e-12) * 1e-6).length > 1) warnings.push("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
-  if (ordered[0].hz !== 15 || ordered[ordered.length - 1].hz !== 50) warnings.push("15–50 Hz 전체 범위가 수집되지 않았습니다.");
+  if (ordered[0].hz !== MIN_STIMULATION_FREQUENCY_HZ || ordered[ordered.length - 1].hz !== MAX_STIMULATION_FREQUENCY_HZ) warnings.push("25–40 Hz 전체 범위가 수집되지 않았습니다.");
   if (hasCurrent) warnings.push("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.");
   else warnings.push("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.");
 
