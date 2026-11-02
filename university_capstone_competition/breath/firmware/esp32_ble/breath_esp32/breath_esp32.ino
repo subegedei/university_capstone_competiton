@@ -33,9 +33,14 @@ struct Frame { uint32_t generation; char text[1400]; };
 bool imuFound = false, imuReady = false, powerReady = false, sweeping = false;
 bool inaConfigured = false;
 uint8_t bnoAddress = 0, inaAddress = 0;
-uint8_t imuInitFailures = 0;
 uint32_t lastSensorRetry = 0, imuInitAt = 0;
 constexpr uint32_t SENSOR_RETRY_MS = 5000;
+// A USB power source can bring up the ESP32 before the BNO085 has completed
+// its own power-on boot.  Give the sensor a stable supply before its first
+// SHTP session, then start from a known reset state.
+constexpr uint32_t SENSOR_COLD_STARTUP_DELAY_MS = 1000;
+constexpr uint32_t BNO_RESET_PULSE_MS = 10;
+constexpr uint32_t BNO_BOOT_DELAY_MS = 300;
 String sessionId, bootId, recentIds[8], recentAcks[8];
 unsigned recentNext = 0;
 uint32_t sequence = 0, lastImu = 0, windowStart = 0, sampleCount = 0, seenGeneration = 0;
@@ -140,6 +145,28 @@ uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
 }
+// A BNO085 that was unplugged while the ESP32 was running can retain an
+// incomplete I2C/SHTP session. Restart the I2C side before the next probe;
+// pulse RST as well when that optional wire is actually connected.
+void resetBnoAndI2C() {
+  Serial.println("BNO085: restarting I2C bus before retry");
+  Wire.end();
+  pinMode(SDA_PIN, INPUT_PULLUP);
+  pinMode(SCL_PIN, INPUT_PULLUP);
+
+  if (BNO_RST_PIN >= 0) {
+    Serial.println("BNO085: pulsing wired RST pin");
+    pinMode(BNO_RST_PIN, OUTPUT);
+    digitalWrite(BNO_RST_PIN, LOW);
+    delay(BNO_RESET_PULSE_MS);
+    digitalWrite(BNO_RST_PIN, HIGH);
+  }
+  delay(BNO_BOOT_DELAY_MS);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
+  Wire.setTimeOut(20);
+}
 void retrySensors() {
   if (imuFound && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
     stopOutput();
@@ -156,17 +183,18 @@ void retrySensors() {
       if (result == 5) { ++timeouts; continue; }
       if (result != 0) continue;
       response = true;
-      if (imuInitFailures >= 3) { Serial.println("BNO085: initialization failed 3 times; reset ESP32 to retry"); break; }
       Serial.printf("BNO085: 0x%02X responding; initializing\n", address);
       const bool initialized = bno.begin_I2C(address, &Wire);
       if (initialized && bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
-        bnoAddress = address; imuFound = true; imuInitFailures = 0; imuInitAt = millis(); lastImu = 0;
+        bnoAddress = address; imuFound = true; imuInitAt = millis(); lastImu = 0;
         Serial.println("BNO085: initialized; waiting for acceleration data");
         break;
       }
-      ++imuInitFailures;
       Serial.println("BNO085: initialization or acceleration report setup failed; retrying");
       if (initialized) sh2_close();
+      resetBnoAndI2C();
+      // The bus object was restarted; try again on the next 5-second cycle.
+      break;
     }
     if (!response) Serial.printf("BNO085: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
       BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, timeouts);
@@ -271,7 +299,7 @@ void telemetry() {
 }
 void setup() {
   Serial.begin(115200);
-  pinMode(BNO_INT_PIN, INPUT_PULLUP); // Adafruit I2C transport polls, no ISR.
+  if (BNO_INT_PIN >= 0) pinMode(BNO_INT_PIN, INPUT_PULLUP); // I2C transport polls, no ISR.
   pinMode(25, INPUT);
   rxQueue = xQueueCreate(4, sizeof(Frame)); txQueue = xQueueCreate(4, sizeof(Frame));
   if (!rxQueue || !txQueue) abort();
@@ -303,6 +331,9 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN); Wire.setClock(100000); Wire.setTimeOut(20);
   Serial.printf("I2C: SDA=%d SCL=%d; BNO085=0x%02X/0x%02X INA226=0x%02X..0x%02X; 100 kHz diagnostic; retry every 5 seconds\n",
     SDA_PIN, SCL_PIN, BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, INA_ADDRESS_MIN, INA_ADDRESS_MAX);
+  Serial.printf("BNO085: waiting %lu ms for power-on stabilization\n", SENSOR_COLD_STARTUP_DELAY_MS);
+  delay(SENSOR_COLD_STARTUP_DELAY_MS);
+  resetBnoAndI2C();
   retrySensors();
   lastSensorRetry = millis();
 }

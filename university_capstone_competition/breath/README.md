@@ -19,17 +19,8 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-터미널 2 (스윕 결과 분석에 필요):
-
-```powershell
-cd services/analysis-api
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
 노트북 Chrome/Edge에서 http://localhost:3000 을 엽니다.
-ANALYSIS_API_URL 기본값은 http://127.0.0.1:8000 입니다.
+스윕 분석은 Next.js API 경로에서 처리하므로 별도 Python/Render 분석 서버가 필요하지 않습니다.
 연결 모달의 확인 버튼 → 브라우저의 Breath-ESP32 선택 → 연결 완료.
 모달만으로 브라우저 장치 선택을 건너뛸 수는 없습니다.
 장치 없이 확인하려면 '먼저 둘러보기' → '장치 없이 데모'를 사용합니다.
@@ -56,8 +47,6 @@ iPhone 기본 브라우저는 이 Web Bluetooth 방식의 시연 대상으로 �
 pnpm typecheck
 pnpm test
 pnpm build
-cd services/analysis-api
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
 통신 계약: docs/BLE_PROTOCOL.md. 실물 준비: docs/FIRMWARE_HANDOFF.md.
