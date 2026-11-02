@@ -1,7 +1,7 @@
 import { BreathBleClient } from "./ble/client";
 import { DemoClient } from "./ble/demo";
 import { ControlCommand, DeviceClient, DeviceInfo, MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
-import { SweepResult, SweepSample, analyseSweep } from "./analysis";
+import { SweepResult, SweepSample, analyseSweep, peakResponseIndex } from "./analysis";
 import { StimulationArea, TonePlayer } from "./audio/tone";
 
 export type SessionView = {
@@ -17,6 +17,8 @@ const sweepFrequencies = Array.from(
   { length: MAX_STIMULATION_FREQUENCY_HZ - MIN_STIMULATION_FREQUENCY_HZ + 1 },
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
+const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
+const SWEEP_DURATION_SECONDS = 35;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -198,23 +200,24 @@ export class MeasurementSession {
     try {
       this.ensureReady(settings);
       if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < 200) throw new Error("스윕에는 BNO085 선형 가속도 200Hz 이상이 필요합니다.");
-      const sweepSettings = { ...settings, frequencyHz: sweepFrequencies[0], durationSeconds: 70 };
+      const sweepSettings = { ...settings, frequencyHz: coarseSweepFrequencies[0], durationSeconds: SWEEP_DURATION_SECONDS };
       this.settings = sweepSettings; this.area = area;
-      if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, 70, area); }
-      this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, 70000);
+      if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
+      this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
       this.startHeartbeat();
-      this.patch({ playing: true, sweeping: true, message: "25–40 Hz를 1 Hz 간격으로 측정합니다. 출력 레벨은 일정하게 유지됩니다." });
+      this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
       const samples: SweepSample[] = [];
-      const settlingMs = mode === "demo" ? 200 : 1200;
-      const measuringMs = mode === "demo" ? 450 : 1200;
-      for (const hz of sweepFrequencies) {
+      const settlingMs = mode === "demo" ? 200 : 500;
+      const measuringMs = mode === "demo" ? 450 : 750;
+      const measure = async (frequencies: number[]) => {
+        for (const hz of frequencies) {
         if (signal.aborted) return;
-        if (hz !== sweepFrequencies[0]) {
+        if (samples.length) {
           this.settings = { ...sweepSettings, frequencyHz: hz };
           if (mode === "device") this.audio.update(hz, settings.intensityPercent);
         }
         if (signal.aborted) return;
-        this.patch({ sweepHz: hz, progress: samples.length / sweepFrequencies.length });
+        this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
         const collector = { hz, after: performance.now() + settlingMs, windows: [] as Telemetry[] };
         this.collect = collector;
         await delay(settlingMs + measuringMs, signal);
@@ -233,8 +236,20 @@ export class MeasurementSession {
           sampleRateHz: Math.min(...collector.windows.map((frame) => frame.imu.sampleRateHz)),
           busVoltageV: meanPower("busVoltageV"), currentA: meanPower("currentA"), powerW: meanPower("powerW"),
         });
-        this.patch({ samples: [...samples], progress: samples.length / sweepFrequencies.length });
-      }
+        this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / 11) });
+        }
+      };
+      await measure(coarseSweepFrequencies);
+      if (signal.aborted) return;
+      const coarsePeakHz = samples[peakResponseIndex(samples)].hz;
+      const fineFrequencies = Array.from(
+        { length: 5 },
+        (_, index) => Math.min(MAX_STIMULATION_FREQUENCY_HZ, Math.max(MIN_STIMULATION_FREQUENCY_HZ, coarsePeakHz - 2 + index)),
+      ).filter((hz, index, values) => values.indexOf(hz) === index && !samples.some((sample) => sample.hz === hz));
+      this.patch({ message: "2단계: " + coarsePeakHz + " Hz 주변을 1 Hz 간격으로 정밀 측정합니다." });
+      await measure(fineFrequencies);
+      if (signal.aborted) return;
+      this.patch({ progress: 1 });
       this.audio.stop(); this.clearTimers();
       this.patch({ playing: false, sweeping: false, message: "Bluetooth 진동음을 정지하고 있습니다." });
       this.patch({ message: "측정 결과를 분석하고 있습니다." });
@@ -267,7 +282,7 @@ export class MeasurementSession {
   }
 
   async retryAnalysis() {
-    if (this.view.busy || this.view.playing || this.view.samples.length !== sweepFrequencies.length) return;
+    if (this.view.busy || this.view.playing || this.view.samples.length < 3) return;
     this.cancel = new AbortController();
     const signal = this.cancel.signal;
     this.patch({ busy: true, message: "수집한 스윕 데이터를 다시 분석합니다." });

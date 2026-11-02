@@ -12,6 +12,20 @@ export type SweepResult = {
 export function displacementRmsM(sample: Pick<SweepSample, "hz" | "accelerationRms">): number {
   return sample.accelerationRms / (2 * Math.PI * sample.hz) ** 2;
 }
+
+export function hasUsableSupplyCurrent(samples: SweepSample[]): boolean {
+  return samples.every((sample) => sample.currentA !== null && sample.currentA >= 0.001);
+}
+
+export function responseScore(sample: SweepSample, normalizeBySupplyCurrent: boolean): number {
+  const displacement = displacementRmsM(sample);
+  return normalizeBySupplyCurrent ? displacement / (sample.currentA as number) : displacement;
+}
+
+export function peakResponseIndex(samples: SweepSample[]): number {
+  const normalizeBySupplyCurrent = hasUsableSupplyCurrent(samples);
+  return samples.reduce((best, sample, index) => responseScore(sample, normalizeBySupplyCurrent) > responseScore(samples[best], normalizeBySupplyCurrent) ? index : best, 0);
+}
 export async function analyseSweep(samples: SweepSample[], signal: AbortSignal): Promise<SweepResult> {
   const response = await fetch("/api/resonance/analyze", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ samples }), signal,

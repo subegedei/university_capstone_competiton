@@ -175,11 +175,11 @@ export default function Dashboard() {
     </section>
 
     <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
-      {view.samples.length === 6 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
+      {view.samples.length >= 3 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
         <button className="start" disabled={!ready || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
-      <p className="helper">25–40 Hz를 1 Hz 간격으로 16구간 측정합니다. 45 Hz 이상은 하드웨어 보호를 위해 사용하지 않습니다.</p>
-      <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + " / 6 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
+      <p className="helper">먼저 25·28·31·34·37·40 Hz를 빠르게 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
+      <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />
       {view.samples.length > 0 ? <>
         <p className="helper chart-hint">그래프를 좌우로 밀면 전체 주파수 구간을 볼 수 있어요.</p>
@@ -206,10 +206,11 @@ function Metric({ label, text }: { label: string; text: string }) { return <div 
 function areaLabel(area: StimulationArea) { return area === "upper" ? "상엽" : area === "lower" ? "하엽" : "둘 다"; }
 function ResponseChart({ samples }: { samples: SweepSample[] }) {
   if (!samples.length) return <div className="chart-empty"><UiIcon kind="chart" /><strong>아직 측정한 데이터가 없어요</strong><span>스윕을 시작하면 주파수별 응답 곡선이 표시됩니다.</span><div className="frequency-markers" aria-hidden="true">{sweepFrequencies.filter((hz) => hz % 3 === 1 || hz === sweepFrequencies[0] || hz === sweepFrequencies.at(-1)).map(hz => <span key={hz}>{hz}<small> Hz</small></span>)}</div></div>;
-  const responses = samples.map(displacementRmsM);
+  const ordered = [...samples].sort((left, right) => left.hz - right.hz);
+  const responses = ordered.map(displacementRmsM);
   const maximum = Math.max(1e-8, ...responses);
   const firstHz = sweepFrequencies[0], lastHz = sweepFrequencies.at(-1) ?? firstHz;
-  const points = samples.map((sample, index) => (45 + (sample.hz - firstHz) / (lastHz - firstHz) * 680) + "," + (170 - responses[index] / maximum * 135)).join(" ");
+  const points = ordered.map((sample, index) => (45 + (sample.hz - firstHz) / (lastHz - firstHz) * 680) + "," + (170 - responses[index] / maximum * 135)).join(" ");
   return <svg className="chart" viewBox="0 0 760 215" role="img" aria-label="주파수별 환산 변위 RMS 응답 곡선">
     <title>25–40 Hz 환산 변위 RMS</title><text x="12" y="18">μm RMS</text><text x="12" y="40">{(maximum * 1e6).toFixed(2)}</text>
     <line x1="45" x2="725" y1="170" y2="170" stroke="var(--line)" /><line x1="45" x2="725" y1="100" y2="100" stroke="var(--line)" />
