@@ -1,6 +1,19 @@
-"""Measured linear-acceleration response peak; not a clinical resonance estimator."""
+"""Estimate a displacement-response peak from measured linear acceleration.
+
+The BNO085 measures acceleration, whose magnitude rises with frequency squared
+even when the physical displacement stays constant.  Sweep selection must
+therefore compare a/(2*pi*f)^2, never raw acceleration alone.
+"""
 from math import isfinite, pi, sqrt
 from statistics import median
+
+
+MIN_CURRENT_A = 0.001
+
+
+def displacement_rms_m(hz: float, acceleration_rms: float) -> float:
+    """Convert sinusoidal acceleration RMS (m/s²) to displacement RMS (m)."""
+    return acceleration_rms / (2 * pi * hz) ** 2
 
 
 def acceleration_model(hz: float, mass: float, damping: float, stiffness: float, force: float) -> float:
@@ -26,27 +39,46 @@ def analyse_sweep(samples: list[dict]) -> dict:
             raise ValueError("Frequencies must be finite and between 15 and 50 Hz.")
         if not isfinite(sample["accelerationRms"]) or sample["accelerationRms"] < 0:
             raise ValueError("Acceleration RMS must be finite and nonnegative.")
-    peak = max(ordered, key=lambda sample: sample["accelerationRms"])
-    amplitude = peak["accelerationRms"]
-    if amplitude <= 0:
+    displacements = [displacement_rms_m(sample["hz"], sample["accelerationRms"]) for sample in ordered]
+    if max(displacements) <= 0:
         raise ValueError("No measurable vibration response was recorded.")
-    prominence = max(0.0, (amplitude - median(sample["accelerationRms"] for sample in ordered)) / amplitude)
+
+    # INA226 reads the amplifier supply, not the actuator coil.  It is only a
+    # usable input-effort proxy when every sweep point has a positive,
+    # calibrated reading; otherwise do not distort the mechanical peak.
+    has_current = all(
+        isinstance(sample.get("currentA"), (int, float))
+        and isfinite(sample["currentA"])
+        and sample["currentA"] >= MIN_CURRENT_A
+        for sample in ordered
+    )
+    scores = [displacement / sample["currentA"] for displacement, sample in zip(displacements, ordered)] if has_current else displacements
+    peak_index = max(range(len(ordered)), key=lambda index: scores[index])
+    peak = ordered[peak_index]
+    peak_acceleration = peak["accelerationRms"]
+    peak_displacement = displacements[peak_index]
+    peak_score = scores[peak_index]
+    prominence = max(0.0, (peak_score - median(scores)) / peak_score)
     warnings = ["이 값은 장치·패널·접촉부를 포함한 측정 시스템의 응답 피크이며, 인체 흉벽의 고유 공진으로 검증된 값은 아닙니다."]
     if peak["hz"] in (ordered[0]["hz"], ordered[-1]["hz"]):
         warnings.append("피크가 스윕 범위의 끝에 있어 범위 밖의 피크를 구분할 수 없습니다.")
     if prominence < 0.1:
         warnings.append("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.")
-    if sum(abs(sample["accelerationRms"] - amplitude) <= amplitude * 1e-6 for sample in ordered) > 1:
-        warnings.append("같은 크기의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.")
+    if sum(abs(score - peak_score) <= max(peak_score, 1e-12) * 1e-6 for score in scores) > 1:
+        warnings.append("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.")
     if ordered[0]["hz"] != 15 or ordered[-1]["hz"] != 50:
         warnings.append("15–50 Hz 전체 범위가 수집되지 않았습니다.")
-    if any(sample.get("currentA") is None or sample.get("powerW") is None for sample in ordered):
-        warnings.append("일부 INA226 전류·전력값이 없습니다. 가속도만으로 피크를 계산했습니다.")
+    if has_current:
+        warnings.append("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.")
+    else:
+        warnings.append("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.")
     return {
         "estimatedResonanceHz": peak["hz"],
-        "peakAccelerationRms": round(amplitude, 6),
+        "peakAccelerationRms": round(peak_acceleration, 6),
+        "peakDisplacementRmsM": peak_displacement,
+        "peakScore": peak_score,
         "peakProminence": round(prominence, 4),
-        "method": "linear-acceleration-rms-peak",
+        "method": "supply-current-normalized-displacement-rms" if has_current else "displacement-rms",
         "warnings": warnings,
         "samples": ordered,
     }

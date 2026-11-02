@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { SweepSample } from "../../../../lib/analysis";
+import { displacementRmsM, type SweepSample } from "../../../../lib/analysis";
 
 type SweepResult = {
   estimatedResonanceHz: number;
   peakAccelerationRms: number;
+  peakDisplacementRmsM: number;
+  peakScore: number;
   peakProminence: number;
-  method: "linear-acceleration-rms-peak";
+  method: "displacement-rms" | "supply-current-normalized-displacement-rms";
   warnings: string[];
   samples: SweepSample[];
 };
@@ -29,7 +31,7 @@ function validSample(value: unknown): value is SweepSample {
     finiteNumber(sample.windowCount, 2) && Number.isInteger(sample.windowCount) &&
     finiteNumber(sample.sampleCount, 1) && Number.isInteger(sample.sampleCount) &&
     finiteNumber(sample.sampleRateHz, 200) && nullableFiniteNumber(sample.busVoltageV, 0) &&
-    nullableFiniteNumber(sample.currentA) && nullableFiniteNumber(sample.powerW);
+    nullableFiniteNumber(sample.currentA, 0) && nullableFiniteNumber(sample.powerW, 0);
 }
 
 function median(values: number[]): number {
@@ -48,24 +50,31 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   if (new Set(ordered.map((sample) => sample.hz)).size !== ordered.length) {
     throw new Error("Duplicate frequencies are not allowed; aggregate RMS windows first.");
   }
-  let peak = ordered[0];
-  for (const sample of ordered.slice(1)) if (sample.accelerationRms > peak.accelerationRms) peak = sample;
-  const amplitude = peak.accelerationRms;
-  if (amplitude <= 0) throw new Error("No measurable vibration response was recorded.");
+  const displacements = ordered.map(displacementRmsM);
+  if (Math.max(...displacements) <= 0) throw new Error("No measurable vibration response was recorded.");
+  const hasCurrent = ordered.every((sample) => sample.currentA !== null && sample.currentA >= 0.001);
+  const scores = hasCurrent ? displacements.map((displacement, index) => displacement / (ordered[index].currentA as number)) : displacements;
+  const peakIndex = scores.reduce((best, score, index) => score > scores[best] ? index : best, 0);
+  const peak = ordered[peakIndex];
+  const peakDisplacement = displacements[peakIndex];
+  const peakScore = scores[peakIndex];
 
-  const prominence = Math.max(0, (amplitude - median(ordered.map((sample) => sample.accelerationRms))) / amplitude);
+  const prominence = Math.max(0, (peakScore - median(scores)) / peakScore);
   const warnings = [warning];
   if (peak.hz === ordered[0].hz || peak.hz === ordered[ordered.length - 1].hz) warnings.push("피크가 스윕 범위의 끝에 있어 범위 밖의 피크를 구분할 수 없습니다.");
   if (prominence < 0.1) warnings.push("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.");
-  if (ordered.filter((sample) => Math.abs(sample.accelerationRms - amplitude) <= amplitude * 1e-6).length > 1) warnings.push("같은 크기의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
+  if (scores.filter((score) => Math.abs(score - peakScore) <= Math.max(peakScore, 1e-12) * 1e-6).length > 1) warnings.push("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
   if (ordered[0].hz !== 15 || ordered[ordered.length - 1].hz !== 50) warnings.push("15–50 Hz 전체 범위가 수집되지 않았습니다.");
-  if (ordered.some((sample) => sample.currentA === null || sample.powerW === null)) warnings.push("일부 INA226 전류·전력값이 없습니다. 가속도만으로 피크를 계산했습니다.");
+  if (hasCurrent) warnings.push("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.");
+  else warnings.push("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.");
 
   return {
     estimatedResonanceHz: peak.hz,
-    peakAccelerationRms: round(amplitude, 6),
+    peakAccelerationRms: round(peak.accelerationRms, 6),
+    peakDisplacementRmsM: peakDisplacement,
+    peakScore,
     peakProminence: round(prominence, 4),
-    method: "linear-acceleration-rms-peak",
+    method: hasCurrent ? "supply-current-normalized-displacement-rms" : "displacement-rms",
     warnings,
     samples: ordered,
   };

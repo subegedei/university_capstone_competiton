@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MeasurementSession, SessionView, initialView } from "../lib/session";
-import { SweepSample } from "../lib/analysis";
+import { displacementRmsM, SweepSample } from "../lib/analysis";
 import { StimulationArea } from "../lib/audio/tone";
 
 type SavedPreset = { name: string; frequency: number; intensity: number; minutes: number; area: StimulationArea };
@@ -187,7 +187,7 @@ export default function Dashboard() {
           <ResponseChart samples={view.samples} />
         </div>
       </> : <ResponseChart samples={view.samples} />}
-      {view.result && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>가속도 {view.result.peakAccelerationRms.toFixed(3)} m/s²</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
+      {view.result && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>환산 변위 {(view.result.peakDisplacementRmsM * 1e6).toFixed(2)} μm RMS</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
       {view.result?.warnings.map((warning) => <p className="warning" key={warning}>{warning}</p>)}
     </section>
     <footer className="dashboard-footer"><span>숨결톡톡 <small>BREATH TOK-TOK</small></span><p className="footnote">브라우저 오디오 또는 ESP32 센서 연결이 끊기면 진동음을 정지합니다. 스윕 피크는 장치·패널·접촉부를 포함한 모형 측정값이며 임상 효과를 뜻하지 않습니다.</p></footer>
@@ -206,10 +206,11 @@ function Metric({ label, text }: { label: string; text: string }) { return <div 
 function areaLabel(area: StimulationArea) { return area === "upper" ? "상엽" : area === "lower" ? "하엽" : "둘 다"; }
 function ResponseChart({ samples }: { samples: SweepSample[] }) {
   if (!samples.length) return <div className="chart-empty"><UiIcon kind="chart" /><strong>아직 측정한 데이터가 없어요</strong><span>스윕을 시작하면 주파수별 응답 곡선이 표시됩니다.</span><div className="frequency-markers" aria-hidden="true">{[20, 25, 30, 35, 40, 45].map(hz => <span key={hz}>{hz}<small> Hz</small></span>)}</div></div>;
-  const maximum = Math.max(0.01, ...samples.map((sample) => sample.accelerationRms));
-  const points = samples.map((sample) => (45 + (sample.hz - 20) / 25 * 680) + "," + (170 - sample.accelerationRms / maximum * 135)).join(" ");
-  return <svg className="chart" viewBox="0 0 760 215" role="img" aria-label="주파수별 선형 가속도 RMS 응답 곡선">
-    <title>20–45 Hz 선형 가속도 RMS</title><text x="12" y="18">m/s²</text><text x="12" y="40">{maximum.toFixed(2)}</text>
+  const responses = samples.map(displacementRmsM);
+  const maximum = Math.max(1e-8, ...responses);
+  const points = samples.map((sample, index) => (45 + (sample.hz - 20) / 25 * 680) + "," + (170 - responses[index] / maximum * 135)).join(" ");
+  return <svg className="chart" viewBox="0 0 760 215" role="img" aria-label="주파수별 환산 변위 RMS 응답 곡선">
+    <title>20–45 Hz 환산 변위 RMS</title><text x="12" y="18">μm RMS</text><text x="12" y="40">{(maximum * 1e6).toFixed(2)}</text>
     <line x1="45" x2="725" y1="170" y2="170" stroke="var(--line)" /><line x1="45" x2="725" y1="100" y2="100" stroke="var(--line)" />
     <polyline points={points} fill="none" stroke="var(--blue)" strokeWidth="3" />
     {[20, 25, 30, 35, 40, 45].map((hz) => <text key={hz} x={45 + (hz - 20) / 25 * 680} y="195" textAnchor="middle">{hz}</text>)}<text x="743" y="195">Hz</text>

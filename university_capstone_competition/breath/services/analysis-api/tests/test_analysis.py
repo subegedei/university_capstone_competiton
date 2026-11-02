@@ -1,7 +1,7 @@
 import unittest
 from fastapi.testclient import TestClient
 from app.main import app
-from app.resonance import analyse_sweep, acceleration_model
+from app.resonance import analyse_sweep, acceleration_model, displacement_rms_m
 
 def sample(hz, rms, current=0.1):
     return dict(hz=hz, accelerationRms=rms, busVoltageV=20, currentA=current, powerW=2,
@@ -11,11 +11,24 @@ class AnalysisTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
-    def test_peak_uses_acceleration_not_amplifier_supply_current(self):
+    def test_peak_uses_frequency_squared_corrected_displacement(self):
         response = self.client.post("/api/resonance/analyze", json={"samples": [sample(15, 0.2, 99), sample(29, 1.2), sample(50, 0.3)]})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["estimatedResonanceHz"], 29)
         self.assertNotIn("confidence", response.json())
+
+    def test_high_frequency_acceleration_does_not_automatically_win(self):
+        # 45 Hz has the largest acceleration, but 30 Hz has the largest
+        # inferred displacement once a = (2*pi*f)^2*x is reversed.
+        result = analyse_sweep([sample(20, 0.5), sample(30, 2.0), sample(45, 4.0)])
+        self.assertEqual(result["estimatedResonanceHz"], 30)
+        self.assertEqual(result["method"], "supply-current-normalized-displacement-rms")
+        self.assertAlmostEqual(displacement_rms_m(30, 2.0), 2.0 / (2 * 3.141592653589793 * 30) ** 2)
+
+    def test_missing_current_falls_back_to_displacement_not_raw_acceleration(self):
+        result = analyse_sweep([sample(20, 0.5, None), sample(30, 2.0, None), sample(45, 4.0, None)])
+        self.assertEqual(result["estimatedResonanceHz"], 30)
+        self.assertEqual(result["method"], "displacement-rms")
 
     def test_flat_and_boundary_response_have_warnings(self):
         result = analyse_sweep([sample(15, 1), sample(30, 1), sample(50, 1)])

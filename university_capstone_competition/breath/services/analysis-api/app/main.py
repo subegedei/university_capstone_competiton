@@ -20,8 +20,8 @@ class SweepSample(BaseModel):
     hz: float = Field(ge=15, le=50)
     accelerationRms: float = Field(ge=0)
     busVoltageV: float | None = Field(default=None, ge=0)
-    currentA: float | None = None
-    powerW: float | None = None
+    currentA: float | None = Field(default=None, ge=0)
+    powerW: float | None = Field(default=None, ge=0)
     windowCount: int = Field(ge=2)
     sampleCount: int = Field(ge=1)
     sampleRateHz: float = Field(ge=200)

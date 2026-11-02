@@ -44,7 +44,10 @@ constexpr uint32_t BNO_BOOT_DELAY_MS = 300;
 String sessionId, bootId, recentIds[8], recentAcks[8];
 unsigned recentNext = 0;
 uint32_t sequence = 0, lastImu = 0, windowStart = 0, sampleCount = 0, seenGeneration = 0;
-double sumSquares = 0;
+// Keep the per-axis sums as well as energy.  The sweep score is based on AC
+// vibration, so a fixed sensor bias or slow posture component must not become
+// part of accelerationRms.
+double sumSquares = 0, sumX = 0, sumY = 0, sumZ = 0;
 float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
 
 OutputState outputSnapshot() {
@@ -140,7 +143,13 @@ void readPower() {
     Serial.println("INA226: read failed; will retry configuration");
   }
 }
-void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
+void resetWindow() { sumSquares = sumX = sumY = sumZ = 0; sampleCount = 0; windowStart = millis(); }
+float acAccelerationRms() {
+  if (!sampleCount) return NAN;
+  const double count = sampleCount;
+  const double acEnergy = sumSquares - (sumX * sumX + sumY * sumY + sumZ * sumZ) / count;
+  return sqrt(max(0.0, acEnergy / count));
+}
 uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
@@ -285,7 +294,7 @@ void telemetry() {
   imu["linearAcceleration"] = nullptr; imu["accelerationRms"] = nullptr;
   if (imuReady && sampleCount) {
     auto axes = imu["linearAcceleration"].to<JsonObject>(); axes["x"] = ax; axes["y"] = ay; axes["z"] = az;
-    imu["accelerationRms"] = sqrt(sumSquares / sampleCount);
+    imu["accelerationRms"] = acAccelerationRms();
   }
   auto power = doc["power"].to<JsonObject>(); power["ready"] = powerReady;
   power["calibrated"] = powerReady && SHUNT_OHMS > 0;
@@ -362,6 +371,7 @@ void loop() {
       ax = event.un.linearAcceleration.x; ay = event.un.linearAcceleration.y; az = event.un.linearAcceleration.z;
       if (isfinite(ax) && isfinite(ay) && isfinite(az)) {
         sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
+        sumX += ax; sumY += ay; sumZ += az;
         sampleCount++; lastImu = millis(); imuReady = true;
       }
     }
