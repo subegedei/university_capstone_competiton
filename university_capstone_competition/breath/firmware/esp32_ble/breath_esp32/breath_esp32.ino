@@ -389,7 +389,10 @@ void loop() {
         sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
         sampleCount++; lastImu = millis(); imuReady = true;
         if (measurement.state == MEASUREMENT_CAPTURING && measurement.count < MEASUREMENT_MAX_SAMPLES) {
-          measurement.time[measurement.count] = event.timestamp;
+          // BNO08x timestamp can be zero or non-monotonic on some I2C/core
+          // combinations. The ESP32 monotonic timer is sufficient for the
+          // local sinusoid fit and remains valid across this capture window.
+          measurement.time[measurement.count] = esp_timer_get_time();
           measurement.value[measurement.count++] = MEASUREMENT_AXIS == 'X' ? ax : MEASUREMENT_AXIS == 'Y' ? ay : az;
         }
       }
