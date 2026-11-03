@@ -28,6 +28,21 @@ export function peakResponseIndex(samples: SweepSample[]): number {
   const normalizeBySupplyCurrent = hasUsableSupplyCurrent(samples);
   return samples.reduce((best, sample, index) => responseScore(sample, normalizeBySupplyCurrent) > responseScore(samples[best], normalizeBySupplyCurrent) ? index : best, 0);
 }
+
+// An end point cannot establish a resonance peak: there is no measurement on
+// its outside to prove that the response has started to fall.  Keep the fine
+// sweep centred on the best *interior* coarse point instead of chasing 40 Hz.
+export function refinementCenterIndex(samples: SweepSample[]): number {
+  if (samples.length < 3) return peakResponseIndex(samples);
+  const normalizeBySupplyCurrent = hasUsableSupplyCurrent(samples);
+  return samples.slice(1, -1).reduce(
+    (best, sample, relativeIndex) => {
+      const index = relativeIndex + 1;
+      return responseScore(sample, normalizeBySupplyCurrent) > responseScore(samples[best], normalizeBySupplyCurrent) ? index : best;
+    },
+    1,
+  );
+}
 export async function analyseSweep(samples: SweepSample[], signal: AbortSignal): Promise<SweepResult> {
   const response = await fetch("/api/resonance/analyze", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ samples }), signal,

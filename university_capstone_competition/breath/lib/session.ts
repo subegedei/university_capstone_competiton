@@ -1,7 +1,7 @@
 import { BreathBleClient } from "./ble/client";
 import { DemoClient } from "./ble/demo";
 import { ControlCommand, DeviceClient, DeviceInfo, MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
-import { SweepResult, SweepSample, analyseSweep, peakResponseIndex } from "./analysis";
+import { SweepResult, SweepSample, analyseSweep, refinementCenterIndex } from "./analysis";
 import { StimulationArea, TonePlayer } from "./audio/tone";
 
 export type SessionView = {
@@ -254,7 +254,9 @@ export class MeasurementSession {
       };
       await measure(coarseSweepFrequencies);
       if (signal.aborted) return;
-      const coarsePeakHz = samples[peakResponseIndex(samples)].hz;
+      // Do not use 25/40 Hz as the centre of a fine sweep.  An edge can be a
+      // high response, but cannot by itself prove where a peak is located.
+      const coarsePeakHz = samples[refinementCenterIndex(samples)].hz;
       const fineFrequencies = Array.from(
         { length: 5 },
         (_, index) => Math.min(MAX_STIMULATION_FREQUENCY_HZ, Math.max(MIN_STIMULATION_FREQUENCY_HZ, coarsePeakHz - 2 + index)),

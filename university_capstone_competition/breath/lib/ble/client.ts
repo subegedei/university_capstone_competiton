@@ -64,8 +64,13 @@ export class BreathBleClient implements DeviceClient {
             }
           }
         } catch (error) {
-          // A malformed notification must not tear down a healthy GATT link.
-          // The next complete telemetry frame can restore the view.
+          // Frame syntax errors are handled above without disconnecting.  A
+          // valid telemetry frame reporting a new boot ID is different: the
+          // device has restarted and every pending control state is stale.
+          if (error instanceof Error && error.message.includes("재부팅")) {
+            this.fail(error.message);
+            return;
+          }
           this.frames.reset();
           this.onError?.("손상된 BLE 센서 프레임 1개를 건너뛰었습니다: " + (error instanceof Error ? error.message : "메시지 오류"));
         }

@@ -8,6 +8,7 @@ import { StimulationArea } from "../lib/audio/tone";
 type SavedPreset = { name: string; frequency: number; intensity: number; minutes: number; area: StimulationArea };
 type Screen = "home" | "analysis" | "memory" | "settings";
 const presetKey = "breath-toktok-presets-v1";
+const buildLabel = "analysis-2026-11-03-b";
 function isPreset(value: unknown): value is SavedPreset {
   if (!value || typeof value !== "object") return false;
   const preset = value as Record<string, unknown>;
@@ -123,7 +124,7 @@ export default function Dashboard() {
       <div><p className="eyebrow">{view.resultMode === "demo" ? "DEMO RESPONSE PEAK" : "MEASURED RESPONSE PEAK"}</p><h2>측정 응답 피크 주파수</h2>
         <strong>{view.result?.estimatedResonanceHz ?? "미검출"}{view.result?.estimatedResonanceHz !== null && <small> Hz</small>}</strong><p className="hero-note">{view.result ? (view.result.estimatedResonanceHz === null ? "내부 피크가 없어 예비 후보를 표시하지 않았습니다." : view.resultMode === "demo" ? "가상 스윕 결과" : "장치·패널·접촉부를 포함한 시스템의 응답 피크") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
       <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
-        <p aria-live="polite">{view.message}</p></div>
+        <p aria-live="polite">{view.message}</p><small>{buildLabel}</small></div>
     </section>
     <p className="mobile-message" aria-live="polite">{view.message}</p>
 
@@ -187,7 +188,7 @@ export default function Dashboard() {
           <ResponseChart samples={view.samples} />
         </div>
       </> : <ResponseChart samples={view.samples} />}
-      {view.result?.estimatedResonanceHz !== null && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>환산 변위 {(view.result.peakDisplacementRmsM * 1e6).toFixed(2)} μm RMS</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
+      {view.result && view.result.estimatedResonanceHz !== null && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>환산 변위 {(view.result.peakDisplacementRmsM * 1e6).toFixed(2)} μm RMS</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
       {view.result?.warnings.map((warning) => <p className="warning" key={warning}>{warning}</p>)}
     </section>
     <footer className="dashboard-footer"><span>숨결톡톡 <small>BREATH TOK-TOK</small></span><p className="footnote">브라우저 오디오 또는 ESP32 센서 연결이 끊기면 진동음을 정지합니다. 스윕 피크는 장치·패널·접촉부를 포함한 모형 측정값이며 임상 효과를 뜻하지 않습니다.</p></footer>
