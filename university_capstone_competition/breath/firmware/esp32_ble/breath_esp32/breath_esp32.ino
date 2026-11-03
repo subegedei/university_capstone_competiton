@@ -10,9 +10,6 @@
 #include <esp_timer.h>
 #include <atomic>
 #include "config.h"
-// The fundamental-fit calculation runs from Arduino's loop task. The default
-// stack is insufficient once its regression workspace is present.
-SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #if !CONFIG_IDF_TARGET_ESP32
 #error Requires classic ESP32 GPIO25 DAC
 #endif
@@ -56,6 +53,9 @@ constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
 struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
 constexpr char MEASUREMENT_AXIS = 'Z';
+// Keep this function after project types so Arduino IDE's generated
+// declarations do not reference OutputState or Frame before their definition.
+size_t getArduinoLoopTaskStackSize() { return 16 * 1024; }
 
 OutputState outputSnapshot() {
   portENTER_CRITICAL(&outputMux); OutputState s = output; portEXIT_CRITICAL(&outputMux); return s;
