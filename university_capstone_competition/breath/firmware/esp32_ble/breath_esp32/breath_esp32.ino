@@ -96,8 +96,8 @@ void transmit(void *) {
   }
 }
 class ServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *) override { stopOutput(); generation++; connected = true; }
-  void onDisconnect(BLEServer *) override { connected = false; generation++; stopOutput(); advertiseAgain = true; }
+  void onConnect(BLEServer *) override { stopOutput(); generation++; connected = true; Serial.println("BLE: connected"); }
+  void onDisconnect(BLEServer *) override { connected = false; generation++; stopOutput(); advertiseAgain = true; Serial.println("BLE: disconnected"); }
 };
 class ControlCallbacks : public BLECharacteristicCallbacks {
   String buffer;

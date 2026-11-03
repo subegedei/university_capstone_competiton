@@ -63,7 +63,12 @@ export class BreathBleClient implements DeviceClient {
               onTelemetry(message);
             }
           }
-        } catch (error) { this.fail(error instanceof Error ? error.message : "BLE 메시지 오류"); }
+        } catch (error) {
+          // A malformed notification must not tear down a healthy GATT link.
+          // The next complete telemetry frame can restore the view.
+          this.frames.reset();
+          this.onError?.("손상된 BLE 센서 프레임 1개를 건너뛰었습니다: " + (error instanceof Error ? error.message : "메시지 오류"));
+        }
       };
       this.telemetry.addEventListener("characteristicvaluechanged", this.notify);
       await this.telemetry.startNotifications();
