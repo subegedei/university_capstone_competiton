@@ -223,7 +223,14 @@ export class MeasurementSession {
         this.collect = collector;
         await delay(settlingMs + measuringMs, signal);
         this.collect = undefined;
-        if (!collector.windows.length) throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. BNO085 축·샘플링률·접촉 상태를 확인하세요.");
+        if (!collector.windows.length) {
+          const measurement = this.view.telemetry?.imu.measurement;
+          if (measurement?.frequencyHz === hz && measurement.state === "invalid") {
+            const r2 = measurement.fitR2 === null ? "—" : measurement.fitR2.toFixed(3);
+            throw new Error(hz + " Hz 기본파 측정 실패: " + (measurement.quality ?? "UNKNOWN") + " (R²=" + r2 + ", " + measurement.sampleRateHz.toFixed(1) + " Hz)");
+          }
+          throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. BNO085 축·샘플링률·접촉 상태를 확인하세요.");
+        }
         const frame = collector.windows.at(-1)!;
         const fundamental = frame.imu.measurement;
         const meanPower = (key: "busVoltageV" | "currentA" | "powerW") => {
