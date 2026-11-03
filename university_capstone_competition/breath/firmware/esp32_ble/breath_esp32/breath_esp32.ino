@@ -10,6 +10,9 @@
 #include <esp_timer.h>
 #include <atomic>
 #include "config.h"
+// The fundamental-fit calculation runs from Arduino's loop task. The default
+// stack is insufficient once its regression workspace is present.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #if !CONFIG_IDF_TARGET_ESP32
 #error Requires classic ESP32 GPIO25 DAC
 #endif
