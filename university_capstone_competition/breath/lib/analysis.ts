@@ -3,7 +3,7 @@ export type SweepSample = {
   powerW: number | null; windowCount: number; sampleCount: number; sampleRateHz: number;
 };
 export type SweepResult = {
-  estimatedResonanceHz: number; peakAccelerationRms: number; peakDisplacementRmsM: number; peakScore: number; peakProminence: number;
+  estimatedResonanceHz: number | null; peakAccelerationRms: number; peakDisplacementRmsM: number; peakScore: number; peakProminence: number;
   warnings: string[]; samples: SweepSample[]; method: string;
 };
 

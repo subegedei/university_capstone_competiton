@@ -46,15 +46,17 @@ def analyse_sweep(samples: list[dict]) -> dict:
     # INA226 reads amplifier supply current, not the coil RMS current. It does
     # not participate in candidate ranking. Compare the velocity component.
     scores = [sample["accelerationRms"] / (2 * pi * sample["hz"]) for sample in ordered]
-    peak_index = max(range(len(ordered)), key=lambda index: scores[index])
-    peak = ordered[peak_index]
+    interior = [index for index in range(1, len(ordered) - 1) if scores[index] > scores[index - 1] and scores[index] > scores[index + 1]]
+    peak_index = max(interior, key=lambda index: scores[index]) if interior else None
+    display_index = peak_index if peak_index is not None else max(range(len(ordered)), key=lambda index: scores[index])
+    peak = ordered[display_index]
     peak_acceleration = peak["accelerationRms"]
-    peak_displacement = displacements[peak_index]
-    peak_score = scores[peak_index]
+    peak_displacement = displacements[display_index]
+    peak_score = scores[display_index]
     prominence = max(0.0, (peak_score - median(scores)) / peak_score)
     warnings = ["이 값은 장치·패널·접촉부를 포함한 측정 시스템의 응답 피크이며, 인체 흉벽의 고유 공진으로 검증된 값은 아닙니다."]
-    if peak["hz"] in (ordered[0]["hz"], ordered[-1]["hz"]):
-        warnings.append("피크가 스윕 범위의 끝에 있어 범위 밖의 피크를 구분할 수 없습니다.")
+    if peak_index is None:
+        warnings.append("속도 환산 점수의 내부 피크가 없어 예비 후보를 표시하지 않았습니다.")
     if prominence < 0.1:
         warnings.append("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.")
     if sum(abs(score - peak_score) <= max(peak_score, 1e-12) * 1e-6 for score in scores) > 1:
@@ -63,7 +65,7 @@ def analyse_sweep(samples: list[dict]) -> dict:
         warnings.append("25–40 Hz 전체 범위가 수집되지 않았습니다.")
     warnings.append("INA226 앰프 공급 전류는 코일 전류가 아니므로 후보 점수에 사용하지 않았습니다.")
     return {
-        "estimatedResonanceHz": peak["hz"],
+        "estimatedResonanceHz": peak["hz"] if peak_index is not None else None,
         "peakAccelerationRms": round(peak_acceleration, 6),
         "peakDisplacementRmsM": peak_displacement,
         "peakScore": peak_score,

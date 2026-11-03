@@ -3,7 +3,7 @@ import { displacementRmsM, hasUsableSupplyCurrent, peakResponseIndex, responseSc
 import { MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ } from "../../../../lib/ble/protocol";
 
 type SweepResult = {
-  estimatedResonanceHz: number;
+  estimatedResonanceHz: number | null;
   peakAccelerationRms: number;
   peakDisplacementRmsM: number;
   peakScore: number;
@@ -55,14 +55,16 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   if (Math.max(...displacements) <= 0) throw new Error("No measurable vibration response was recorded.");
   const hasCurrent = hasUsableSupplyCurrent(ordered);
   const scores = ordered.map((sample) => responseScore(sample, hasCurrent));
-  const peakIndex = peakResponseIndex(ordered);
-  const peak = ordered[peakIndex];
-  const peakDisplacement = displacements[peakIndex];
-  const peakScore = scores[peakIndex];
+  const interior = ordered.map((_, index) => index).filter((index) => index > 0 && index < ordered.length - 1 && scores[index] > scores[index - 1] && scores[index] > scores[index + 1]);
+  const peakIndex = interior.length ? interior.reduce((best, index) => scores[index] > scores[best] ? index : best) : -1;
+  const displayIndex = peakIndex >= 0 ? peakIndex : peakResponseIndex(ordered);
+  const peak = ordered[displayIndex];
+  const peakDisplacement = displacements[displayIndex];
+  const peakScore = scores[displayIndex];
 
   const prominence = Math.max(0, (peakScore - median(scores)) / peakScore);
   const warnings = [warning];
-  if (peak.hz === ordered[0].hz || peak.hz === ordered[ordered.length - 1].hz) warnings.push("피크가 스윕 범위의 끝에 있어 범위 밖의 피크를 구분할 수 없습니다.");
+  if (peakIndex < 0) warnings.push("속도 환산 점수의 내부 피크가 없어 예비 후보를 표시하지 않았습니다.");
   if (prominence < 0.1) warnings.push("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.");
   if (scores.filter((score) => Math.abs(score - peakScore) <= Math.max(peakScore, 1e-12) * 1e-6).length > 1) warnings.push("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
   if (ordered[0].hz !== MIN_STIMULATION_FREQUENCY_HZ || ordered[ordered.length - 1].hz !== MAX_STIMULATION_FREQUENCY_HZ) warnings.push("25–40 Hz 양 끝점이 모두 수집되지 않았습니다.");
@@ -70,7 +72,7 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   else warnings.push("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.");
 
   return {
-    estimatedResonanceHz: peak.hz,
+    estimatedResonanceHz: peakIndex >= 0 ? peak.hz : null,
     peakAccelerationRms: round(peak.accelerationRms, 6),
     peakDisplacementRmsM: peakDisplacement,
     peakScore,
