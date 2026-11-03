@@ -208,7 +208,9 @@ export class MeasurementSession {
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
       const samples: SweepSample[] = [];
       const settlingMs = mode === "demo" ? 200 : 800;
-      const measuringMs = mode === "demo" ? 450 : 1900;
+      // Device telemetry arrives once per second to avoid BLE fragment loss.
+      // Wait long enough to receive the completed 1.6-second fit result.
+      const measuringMs = mode === "demo" ? 450 : 2600;
       const measure = async (frequencies: number[]) => {
         for (const hz of frequencies) {
         if (signal.aborted) return;

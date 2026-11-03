@@ -94,7 +94,8 @@ void transmit(void *) {
       if (!connected.load() || frame.generation != generation.load()) break;
       size_t count = min(size_t(20), length - offset);
       notifyChar->setValue((uint8_t *)frame.text + offset, count); notifyChar->notify();
-      vTaskDelay(pdMS_TO_TICKS(5));
+      // Keep notification fragments ordered on mobile Web Bluetooth stacks.
+      vTaskDelay(pdMS_TO_TICKS(10));
     }
   }
 }
@@ -399,10 +400,8 @@ void loop() {
     }
   }
   updateMeasurement();
-  // Fundamental-measurement telemetry is larger than the original RMS frame.
-  // At 250 ms it can saturate 20-byte BLE notifications and lose a fragment.
-  // A 500 ms window still leaves ample time for the browser to receive a
-  // completed 1.6-second measurement before its collection deadline.
-  if (millis() - windowStart >= 500) telemetry();
+  // The expanded telemetry frame is fragmented into 20-byte notifications.
+  // A one-second interval leaves transport headroom for loss-free delivery.
+  if (millis() - windowStart >= 1000) telemetry();
   delay(1);
 }
