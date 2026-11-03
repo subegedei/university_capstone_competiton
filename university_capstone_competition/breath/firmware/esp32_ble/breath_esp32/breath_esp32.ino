@@ -303,9 +303,11 @@ void telemetry() {
   }
   auto measured = imu["measurement"].to<JsonObject>();
   const char *measurementState = measurement.state == MEASUREMENT_SETTLING ? "settling" : measurement.state == MEASUREMENT_CAPTURING ? "capturing" : measurement.state == MEASUREMENT_COMPLETE ? "complete" : measurement.state == MEASUREMENT_INVALID ? "invalid" : "idle";
-  measured["state"] = measurementState; measured["frequencyHz"] = measurement.state == MEASUREMENT_IDLE ? nullptr : measurement.hz;
-  measured["fundamentalAccelerationRms"] = measurement.state == MEASUREMENT_COMPLETE ? measurement.rms : nullptr;
-  measured["fitR2"] = isfinite(measurement.r2) ? measurement.r2 : nullptr; measured["quality"] = measurement.quality;
+  measured["state"] = measurementState;
+  if (measurement.state == MEASUREMENT_IDLE) measured["frequencyHz"] = nullptr; else measured["frequencyHz"] = measurement.hz;
+  if (measurement.state == MEASUREMENT_COMPLETE) measured["fundamentalAccelerationRms"] = measurement.rms; else measured["fundamentalAccelerationRms"] = nullptr;
+  if (isfinite(measurement.r2)) measured["fitR2"] = measurement.r2; else measured["fitR2"] = nullptr;
+  measured["quality"] = measurement.quality;
   measured["sampleCount"] = measurement.count; measured["sampleRateHz"] = isfinite(measurement.rate) ? measurement.rate : 0;
   auto power = doc["power"].to<JsonObject>(); power["ready"] = powerReady;
   power["calibrated"] = powerReady && SHUNT_OHMS > 0;
