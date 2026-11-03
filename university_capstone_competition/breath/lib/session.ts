@@ -18,7 +18,9 @@ const sweepFrequencies = Array.from(
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
 const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
-const SWEEP_DURATION_SECONDS = 35;
+// Six coarse points plus up to four new fine points each need an 0.8-second
+// settle period and a 1.6-second fundamental capture. Leave margin for BLE.
+const SWEEP_DURATION_SECONDS = 65;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
