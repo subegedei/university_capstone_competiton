@@ -22,7 +22,7 @@ class SweepSample(BaseModel):
     busVoltageV: float | None = Field(default=None, ge=0)
     currentA: float | None = Field(default=None, ge=0)
     powerW: float | None = Field(default=None, ge=0)
-    windowCount: int = Field(ge=2)
+    windowCount: int = Field(ge=1)
     sampleCount: int = Field(ge=1)
     sampleRateHz: float = Field(ge=200)
 

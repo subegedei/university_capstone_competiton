@@ -29,7 +29,7 @@ function validSample(value: unknown): value is SweepSample {
   const sample = value as Record<string, unknown>;
   if (Object.keys(sample).some((key) => !sampleKeys.has(key))) return false;
   return finiteNumber(sample.hz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) && finiteNumber(sample.accelerationRms, 0) &&
-    finiteNumber(sample.windowCount, 2) && Number.isInteger(sample.windowCount) &&
+    finiteNumber(sample.windowCount, 1) && Number.isInteger(sample.windowCount) &&
     finiteNumber(sample.sampleCount, 1) && Number.isInteger(sample.sampleCount) &&
     finiteNumber(sample.sampleRateHz, 200) && nullableFiniteNumber(sample.busVoltageV, 0) &&
     nullableFiniteNumber(sample.currentA, 0) && nullableFiniteNumber(sample.powerW, 0);
