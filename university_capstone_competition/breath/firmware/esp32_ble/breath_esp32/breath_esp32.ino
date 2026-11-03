@@ -393,6 +393,10 @@ void loop() {
     }
   }
   updateMeasurement();
-  if (millis() - windowStart >= 250) telemetry();
+  // Fundamental-measurement telemetry is larger than the original RMS frame.
+  // At 250 ms it can saturate 20-byte BLE notifications and lose a fragment.
+  // A 500 ms window still leaves ample time for the browser to receive a
+  // completed 1.6-second measurement before its collection deadline.
+  if (millis() - windowStart >= 500) telemetry();
   delay(1);
 }
