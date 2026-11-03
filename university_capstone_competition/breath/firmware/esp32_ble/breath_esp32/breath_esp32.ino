@@ -46,6 +46,13 @@ unsigned recentNext = 0;
 uint32_t sequence = 0, lastImu = 0, windowStart = 0, sampleCount = 0, seenGeneration = 0;
 double sumSquares = 0;
 float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
+// Basic-frequency measurement state. The browser requests this with a BLE
+// "measure" command after it has changed the external audio frequency.
+constexpr uint32_t MEASUREMENT_SETTLE_MS = 800, MEASUREMENT_CAPTURE_MS = 1600;
+constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
+enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
+struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
+constexpr char MEASUREMENT_AXIS = 'Z';
 
 OutputState outputSnapshot() {
   portENTER_CRITICAL(&outputMux); OutputState s = output; portEXIT_CRITICAL(&outputMux); return s;
@@ -141,6 +148,10 @@ void readPower() {
   }
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
+bool solve3x3(double a[3][4], double x[3]) { for (int k=0;k<3;++k) { int b=k; for(int r=k+1;r<3;++r) if(fabs(a[r][k])>fabs(a[b][k])) b=r; if(fabs(a[b][k])<1e-9) return false; for(int j=k;j<4;++j){double t=a[k][j];a[k][j]=a[b][j];a[b][j]=t;} double d=a[k][k]; for(int j=k;j<4;++j)a[k][j]/=d; for(int r=0;r<3;++r)if(r!=k){double q=a[r][k];for(int j=k;j<4;++j)a[r][j]-=q*a[k][j];}} for(int k=0;k<3;++k)x[k]=a[k][3]; return true; }
+void startMeasurement(float hz) { measurement = {}; measurement.state=MEASUREMENT_SETTLING; measurement.hz=hz; measurement.startedAt=millis(); measurement.quality="SETTLING"; }
+void finishMeasurement() { if(measurement.count<64){measurement.state=MEASUREMENT_INVALID;measurement.quality="INSUFFICIENT_SAMPLES";return;} uint64_t t0=measurement.time[0],t1=measurement.time[measurement.count-1]; if(t1<=t0){measurement.state=MEASUREMENT_INVALID;measurement.quality="BAD_TIMESTAMP";return;} double seconds=(t1-t0)*1e-6, n[3][3]={{0}},rhs[3]={0},mean=0,total=0; measurement.rate=(measurement.count-1)/seconds; for(size_t i=0;i<measurement.count;++i){double t=(measurement.time[i]-t0)*1e-6,y=measurement.value[i],angle=TWO_PI*measurement.hz*t,v[3]={1,cos(angle),sin(angle)};mean+=y;total+=y*y;for(int r=0;r<3;++r){rhs[r]+=v[r]*y;for(int c=0;c<3;++c)n[r][c]+=v[r]*v[c];}} mean/=measurement.count;double a[3][4],b[3];for(int r=0;r<3;++r){for(int c=0;c<3;++c)a[r][c]=n[r][c];a[r][3]=rhs[r];}if(!solve3x3(a,b)){measurement.state=MEASUREMENT_INVALID;measurement.quality="INVALID_FIT";return;}double sst=total-measurement.count*mean*mean,sse=total-(b[0]*rhs[0]+b[1]*rhs[1]+b[2]*rhs[2]);measurement.r2=sst>1e-12?1-fmax(0.0,sse)/sst:NAN;measurement.rms=sqrt(b[1]*b[1]+b[2]*b[2])/sqrt(2.0);if(measurement.rate<5*measurement.hz){measurement.state=MEASUREMENT_INVALID;measurement.quality="LOW_SAMPLE_RATE";}else if(!isfinite(measurement.r2)||measurement.r2<.60){measurement.state=MEASUREMENT_INVALID;measurement.quality="LOW_FIT_R2";}else{measurement.state=MEASUREMENT_COMPLETE;measurement.quality="MEASURE_OK";} }
+void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS)finishMeasurement(); }
 uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
@@ -244,6 +255,9 @@ void handleCommand(const Frame &frame) {
   else if (kind == "heartbeat") {
     if (!before.active || sid != sessionId) error = "Session inactive";
     else { portENTER_CRITICAL(&outputMux); output.lease = esp_timer_get_time() + LEASE_MS * 1000LL; portEXIT_CRITICAL(&outputMux); }
+  } else if (kind == "measure") {
+    if (!imuReady) error = "BNO085 must be ready";
+    else startMeasurement(hz);
   } else if (kind == "start" || kind == "sweep" || kind == "update") {
     if (!OUTPUT_ENABLED) error = "Output locked: verify amplifier and config.h";
     else if (!imuReady || !powerReady) error = "BNO085 and INA226 must be ready";
@@ -287,6 +301,12 @@ void telemetry() {
     auto axes = imu["linearAcceleration"].to<JsonObject>(); axes["x"] = ax; axes["y"] = ay; axes["z"] = az;
     imu["accelerationRms"] = sqrt(sumSquares / sampleCount);
   }
+  auto measured = imu["measurement"].to<JsonObject>();
+  const char *measurementState = measurement.state == MEASUREMENT_SETTLING ? "settling" : measurement.state == MEASUREMENT_CAPTURING ? "capturing" : measurement.state == MEASUREMENT_COMPLETE ? "complete" : measurement.state == MEASUREMENT_INVALID ? "invalid" : "idle";
+  measured["state"] = measurementState; measured["frequencyHz"] = measurement.state == MEASUREMENT_IDLE ? nullptr : measurement.hz;
+  measured["fundamentalAccelerationRms"] = measurement.state == MEASUREMENT_COMPLETE ? measurement.rms : nullptr;
+  measured["fitR2"] = isfinite(measurement.r2) ? measurement.r2 : nullptr; measured["quality"] = measurement.quality;
+  measured["sampleCount"] = measurement.count; measured["sampleRateHz"] = isfinite(measurement.rate) ? measurement.rate : 0;
   auto power = doc["power"].to<JsonObject>(); power["ready"] = powerReady;
   power["calibrated"] = powerReady && SHUNT_OHMS > 0;
   power["busVoltageV"] = nullptr; power["currentA"] = nullptr; power["powerW"] = nullptr;
@@ -363,9 +383,14 @@ void loop() {
       if (isfinite(ax) && isfinite(ay) && isfinite(az)) {
         sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
         sampleCount++; lastImu = millis(); imuReady = true;
+        if (measurement.state == MEASUREMENT_CAPTURING && measurement.count < MEASUREMENT_MAX_SAMPLES) {
+          measurement.time[measurement.count] = event.timestamp;
+          measurement.value[measurement.count++] = MEASUREMENT_AXIS == 'X' ? ax : MEASUREMENT_AXIS == 'Y' ? ay : az;
+        }
       }
     }
   }
+  updateMeasurement();
   if (millis() - windowStart >= 250) telemetry();
   delay(1);
 }

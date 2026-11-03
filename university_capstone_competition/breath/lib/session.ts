@@ -86,8 +86,8 @@ export class MeasurementSession {
     this.patch({ telemetry: data });
     if (data.status === "error") { void this.stop(data.error || "ESP32 센서 오류로 정지했습니다."); return; }
     const collector = this.collect;
-    if (collector && performance.now() >= collector.after &&
-      data.imu.ready && data.imu.accelerationRms !== null && data.imu.sampleCount > 0 && data.imu.sampleRateHz >= 200) {
+    if (collector && performance.now() >= collector.after && data.imu.measurement.state === "complete" &&
+      data.imu.measurement.frequencyHz === collector.hz && data.imu.measurement.fundamentalAccelerationRms !== null) {
       collector.windows.push(data);
     }
   };
@@ -204,11 +204,11 @@ export class MeasurementSession {
       this.settings = sweepSettings; this.area = area;
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
-      this.startHeartbeat();
+      this.sessionId = crypto.randomUUID();
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
       const samples: SweepSample[] = [];
-      const settlingMs = mode === "demo" ? 200 : 500;
-      const measuringMs = mode === "demo" ? 450 : 750;
+      const settlingMs = mode === "demo" ? 200 : 800;
+      const measuringMs = mode === "demo" ? 450 : 1900;
       const measure = async (frequencies: number[]) => {
         for (const hz of frequencies) {
         if (signal.aborted) return;
@@ -216,14 +216,16 @@ export class MeasurementSession {
           this.settings = { ...sweepSettings, frequencyHz: hz };
           if (mode === "device") this.audio.update(hz, settings.intensityPercent);
         }
+        if (mode === "device") await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
         if (signal.aborted) return;
         this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
         const collector = { hz, after: performance.now() + settlingMs, windows: [] as Telemetry[] };
         this.collect = collector;
         await delay(settlingMs + measuringMs, signal);
         this.collect = undefined;
-        if (collector.windows.length < 2) throw new Error(hz + " Hz에서 유효한 RMS 측정값이 부족합니다. BNO085 샘플링과 BLE 수신을 확인하세요.");
-        const count = collector.windows.reduce((sum, frame) => sum + frame.imu.sampleCount, 0);
+        if (!collector.windows.length) throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. BNO085 축·샘플링률·접촉 상태를 확인하세요.");
+        const frame = collector.windows.at(-1)!;
+        const fundamental = frame.imu.measurement;
         const meanPower = (key: "busVoltageV" | "currentA" | "powerW") => {
           const values = collector.windows.filter((frame) => frame.power.ready && (key === "busVoltageV" || frame.power.calibrated))
             .map((frame) => frame.power[key]).filter((value): value is number => value !== null);
@@ -231,9 +233,9 @@ export class MeasurementSession {
         };
         samples.push({
           hz,
-          accelerationRms: Math.sqrt(collector.windows.reduce((sum, frame) => sum + (frame.imu.accelerationRms ?? 0) ** 2 * frame.imu.sampleCount, 0) / count),
-          windowCount: collector.windows.length, sampleCount: count,
-          sampleRateHz: Math.min(...collector.windows.map((frame) => frame.imu.sampleRateHz)),
+          accelerationRms: fundamental.fundamentalAccelerationRms!,
+          windowCount: collector.windows.length, sampleCount: fundamental.sampleCount,
+          sampleRateHz: fundamental.sampleRateHz,
           busVoltageV: meanPower("busVoltageV"), currentA: meanPower("currentA"), powerW: meanPower("powerW"),
         });
         this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / 11) });

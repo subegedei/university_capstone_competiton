@@ -43,16 +43,9 @@ def analyse_sweep(samples: list[dict]) -> dict:
     if max(displacements) <= 0:
         raise ValueError("No measurable vibration response was recorded.")
 
-    # INA226 reads the amplifier supply, not the actuator coil.  It is only a
-    # usable input-effort proxy when every sweep point has a positive,
-    # calibrated reading; otherwise do not distort the mechanical peak.
-    has_current = all(
-        isinstance(sample.get("currentA"), (int, float))
-        and isfinite(sample["currentA"])
-        and sample["currentA"] >= MIN_CURRENT_A
-        for sample in ordered
-    )
-    scores = [displacement / sample["currentA"] for displacement, sample in zip(displacements, ordered)] if has_current else displacements
+    # INA226 reads amplifier supply current, not the coil RMS current. It does
+    # not participate in candidate ranking. Compare the velocity component.
+    scores = [sample["accelerationRms"] / (2 * pi * sample["hz"]) for sample in ordered]
     peak_index = max(range(len(ordered)), key=lambda index: scores[index])
     peak = ordered[peak_index]
     peak_acceleration = peak["accelerationRms"]
@@ -68,17 +61,14 @@ def analyse_sweep(samples: list[dict]) -> dict:
         warnings.append("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.")
     if ordered[0]["hz"] != 25 or ordered[-1]["hz"] != 40:
         warnings.append("25–40 Hz 전체 범위가 수집되지 않았습니다.")
-    if has_current:
-        warnings.append("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.")
-    else:
-        warnings.append("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.")
+    warnings.append("INA226 앰프 공급 전류는 코일 전류가 아니므로 후보 점수에 사용하지 않았습니다.")
     return {
         "estimatedResonanceHz": peak["hz"],
         "peakAccelerationRms": round(peak_acceleration, 6),
         "peakDisplacementRmsM": peak_displacement,
         "peakScore": peak_score,
         "peakProminence": round(prominence, 4),
-        "method": "supply-current-normalized-displacement-rms" if has_current else "displacement-rms",
+        "method": "velocity-rms",
         "warnings": warnings,
         "samples": ordered,
     }

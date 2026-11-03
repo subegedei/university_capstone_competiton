@@ -18,8 +18,10 @@ export function hasUsableSupplyCurrent(samples: SweepSample[]): boolean {
 }
 
 export function responseScore(sample: SweepSample, normalizeBySupplyCurrent: boolean): number {
-  const displacement = displacementRmsM(sample);
-  return normalizeBySupplyCurrent ? displacement / (sample.currentA as number) : displacement;
+  // The candidate rule uses the fundamental velocity component. INA226 reads
+  // amplifier supply current, not coil current, so it must not alter ranking.
+  void normalizeBySupplyCurrent;
+  return sample.accelerationRms / (2 * Math.PI * sample.hz);
 }
 
 export function peakResponseIndex(samples: SweepSample[]): number {

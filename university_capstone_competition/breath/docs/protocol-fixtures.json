@@ -46,7 +46,16 @@
       },
       "accelerationRms": 0.245,
       "sampleCount": 50,
-      "sampleRateHz": 250
+      "sampleRateHz": 250,
+      "measurement": {
+        "state": "complete",
+        "frequencyHz": 30,
+        "fundamentalAccelerationRms": 0.21,
+        "fitR2": 0.9,
+        "quality": "MEASURE_OK",
+        "sampleCount": 400,
+        "sampleRateHz": 250
+      }
     },
     "power": {
       "ready": true,

@@ -13,7 +13,7 @@ export type DeviceStatus = "idle" | "running" | "sweeping" | "error";
 export type Settings = { frequencyHz: number; intensityPercent: number; durationSeconds: number };
 export type ControlCommand = Settings & {
   type: "control"; protocolVersion: 3; commandId: string; sessionId: string;
-  command: "start" | "stop" | "update" | "sweep" | "heartbeat";
+  command: "start" | "stop" | "update" | "sweep" | "heartbeat" | "measure";
 };
 export type DeviceInfo = {
   protocolVersion: 3; firmwareVersion: string; audioSource: "esp32-dac";
@@ -24,7 +24,9 @@ export type Telemetry = {
   uptimeMs: number; sessionId: string; status: DeviceStatus;
   frequencyHz: number; intensityPercent: number; remainingSeconds: number;
   imu: { ready: boolean; linearAcceleration: { x: number; y: number; z: number } | null;
-    accelerationRms: number | null; sampleCount: number; sampleRateHz: number };
+    accelerationRms: number | null; sampleCount: number; sampleRateHz: number;
+    measurement: { state: "idle" | "settling" | "capturing" | "complete" | "invalid"; frequencyHz: number | null;
+      fundamentalAccelerationRms: number | null; fitR2: number | null; quality: string | null; sampleCount: number; sampleRateHz: number } };
   power: { ready: boolean; calibrated: boolean; busVoltageV: number | null;
     currentA: number | null; powerW: number | null };
   error?: string;
@@ -62,11 +64,16 @@ export function parseDeviceMessage(raw: string): DeviceMessage {
   if (data.type !== "telemetry" || !id(data.bootId) || !data.bootId || !Number.isSafeInteger(data.sequence) || !numberIn(data.sequence, 0) ||
       !numberIn(data.uptimeMs, 0) || !["idle", "running", "sweeping", "error"].includes(String(data.status)) ||
       !numberIn(data.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) || !numberIn(data.intensityPercent, 0, 100) || !numberIn(data.remainingSeconds, 0, 1800) ||
-      !record(data.imu) || !record(data.power) || typeof data.imu.ready !== "boolean" || typeof data.power.ready !== "boolean" ||
+      !record(data.imu) || !record(data.power) || !record(data.imu.measurement) || typeof data.imu.ready !== "boolean" || typeof data.power.ready !== "boolean" ||
       typeof data.power.calibrated !== "boolean" || !optionalNumber(data.imu.accelerationRms, 0) ||
       !Number.isSafeInteger(data.imu.sampleCount) || !numberIn(data.imu.sampleCount, 0) || !numberIn(data.imu.sampleRateHz, 0) ||
       !optionalNumber(data.power.busVoltageV, 0) || !optionalNumber(data.power.currentA) || !optionalNumber(data.power.powerW) ||
       (data.error !== undefined && typeof data.error !== "string")) throw new Error("ESP32 센서 메시지 형식이 잘못되었습니다.");
+  const measurement = data.imu.measurement;
+  if (!['idle', 'settling', 'capturing', 'complete', 'invalid'].includes(String(measurement.state)) ||
+      !optionalNumber(measurement.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ) || !optionalNumber(measurement.fundamentalAccelerationRms, 0) ||
+      !optionalNumber(measurement.fitR2) || (measurement.quality !== null && typeof measurement.quality !== "string") ||
+      !Number.isSafeInteger(measurement.sampleCount) || !numberIn(measurement.sampleCount, 0) || !numberIn(measurement.sampleRateHz, 0)) throw new Error("ESP32 기본파 측정 형식이 잘못되었습니다.");
   const axes = data.imu.linearAcceleration;
   if (axes !== null && (!record(axes) || !finite(axes.x) || !finite(axes.y) || !finite(axes.z))) throw new Error("BNO085 가속도 값이 잘못되었습니다.");
   return data as Telemetry;
@@ -88,7 +95,7 @@ export class JsonLineDecoder {
 
 export function encodeCommand(command: ControlCommand): Uint8Array[] {
   if (command.type !== "control" || command.protocolVersion !== 3 ||
-      !["start", "stop", "update", "sweep", "heartbeat"].includes(command.command) ||
+      !["start", "stop", "update", "sweep", "heartbeat", "measure"].includes(command.command) ||
       !id(command.commandId) || !id(command.sessionId) || !numberIn(command.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) || !numberIn(command.intensityPercent, 0, 100) ||
       !Number.isInteger(command.durationSeconds) || !numberIn(command.durationSeconds, 1, 1800) || !command.sessionId || !command.commandId) {
     throw new Error("주파수·강도·시간 설정을 확인하세요.");

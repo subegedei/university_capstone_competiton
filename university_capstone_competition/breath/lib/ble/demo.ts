@@ -35,7 +35,8 @@ export class DemoClient implements DeviceClient {
     this.callback?.({ type: "telemetry", protocolVersion: 3, bootId: "demo-boot", sequence: this.sequence++, uptimeMs: Math.floor(performance.now() - this.began),
       sessionId: this.sessionId, status: this.status, frequencyHz: this.settings.frequencyHz, intensityPercent: this.settings.intensityPercent,
       remainingSeconds: active ? Math.max(0, Math.ceil((this.deadline - performance.now()) / 1000)) : 0,
-      imu: { ready: true, linearAcceleration: { x: response * 0.3, y: response * 0.1, z: response }, accelerationRms: response, sampleCount: 50, sampleRateHz: 250 },
+      imu: { ready: true, linearAcceleration: { x: response * 0.3, y: response * 0.1, z: response }, accelerationRms: response, sampleCount: 50, sampleRateHz: 250,
+        measurement: { state: "complete", frequencyHz: this.settings.frequencyHz, fundamentalAccelerationRms: response, fitR2: 0.95, quality: "MEASURE_OK", sampleCount: 400, sampleRateHz: 250 } },
       power: { ready: true, calibrated: true, busVoltageV: 12, currentA: current, powerW: current * 12 } });
   }
   disconnect() { clearInterval(this.timer); this.timer = undefined; this.status = "idle"; this.callback = undefined; this.disconnected?.(); this.disconnected = undefined; }

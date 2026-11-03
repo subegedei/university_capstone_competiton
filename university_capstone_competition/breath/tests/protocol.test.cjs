@@ -22,7 +22,8 @@ test("malformed, old-version and nonfinite telemetry are rejected", () => {
 test("missing sensor values are null, while zero is a valid measurement", () => {
   const zero = { ...fixture.telemetry, imu: { ...fixture.telemetry.imu, accelerationRms: 0 }, power: { ...fixture.telemetry.power, currentA: 0, powerW: 0 } };
   assert.equal(parseDeviceMessage(JSON.stringify(zero)).power.currentA, 0);
-  const missing = { ...zero, imu: { ready: false, linearAcceleration: null, accelerationRms: null, sampleCount: 0, sampleRateHz: 0 } };
+  const missing = { ...zero, imu: { ready: false, linearAcceleration: null, accelerationRms: null, sampleCount: 0, sampleRateHz: 0,
+    measurement: { state: "idle", frequencyHz: null, fundamentalAccelerationRms: null, fitR2: null, quality: null, sampleCount: 0, sampleRateHz: 0 } } };
   assert.equal(parseDeviceMessage(JSON.stringify(missing)).imu.accelerationRms, null);
 });
 test("device info rejects obsolete hardware and control enforces bounded durations", () => {
