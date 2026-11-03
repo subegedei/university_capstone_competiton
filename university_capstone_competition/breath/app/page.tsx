@@ -121,8 +121,8 @@ export default function Dashboard() {
     </section>
 
     <section className="hero-card" hidden={screen !== "analysis"}>
-      <div><p className="eyebrow">{view.resultMode === "demo" ? "DEMO RESPONSE PEAK" : "MEASURED RESPONSE PEAK"}</p><h2>측정 응답 피크 주파수</h2>
-        <strong>{view.result?.estimatedResonanceHz ?? "미검출"}{view.result?.estimatedResonanceHz !== null && <small> Hz</small>}</strong><p className="hero-note">{view.result ? (view.result.estimatedResonanceHz === null ? "내부 피크가 없어 예비 후보를 표시하지 않았습니다." : view.resultMode === "demo" ? "가상 스윕 결과" : "장치·패널·접촉부를 포함한 시스템의 응답 피크") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
+      <div><p className="eyebrow">{view.resultMode === "demo" ? "DEMO RESPONSE PEAK" : view.result?.peakKind === "boundary" ? "RANGE MAX RESPONSE" : "MEASURED RESPONSE PEAK"}</p><h2>{view.result?.peakKind === "boundary" ? "측정 범위 내 최대 응답 주파수" : "측정 응답 피크 주파수"}</h2>
+        <strong>{view.result?.estimatedResonanceHz ?? "—"}{view.result?.estimatedResonanceHz !== null && <small> Hz</small>}</strong><p className="hero-note">{view.result ? (view.result.peakKind === "boundary" ? "측정 범위 끝점에서 최대 응답이 관찰되었습니다." : view.resultMode === "demo" ? "가상 스윕 결과" : "장치·패널·접촉부를 포함한 시스템의 응답 피크") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
       <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
         <p aria-live="polite">{view.message}</p><small>{buildLabel}</small></div>
     </section>

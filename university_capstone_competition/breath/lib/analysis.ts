@@ -4,7 +4,7 @@ export type SweepSample = {
 };
 export type SweepResult = {
   estimatedResonanceHz: number | null; peakAccelerationRms: number; peakDisplacementRmsM: number; peakScore: number; peakProminence: number;
-  warnings: string[]; samples: SweepSample[]; method: string;
+  peakKind: "interior" | "boundary"; warnings: string[]; samples: SweepSample[]; method: string;
 };
 
 // For sinusoidal motion, a = (2*pi*f)^2 * x.  Comparing raw acceleration

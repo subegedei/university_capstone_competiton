@@ -4,6 +4,7 @@ import { MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ } from "../.
 
 type SweepResult = {
   estimatedResonanceHz: number | null;
+  peakKind: "interior" | "boundary";
   peakAccelerationRms: number;
   peakDisplacementRmsM: number;
   peakScore: number;
@@ -64,7 +65,7 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
 
   const prominence = Math.max(0, (peakScore - median(scores)) / peakScore);
   const warnings = [warning];
-  if (peakIndex < 0) warnings.push("속도 환산 점수의 내부 피크가 없어 예비 후보를 표시하지 않았습니다.");
+  if (peakIndex < 0) warnings.push("내부 피크는 확인되지 않았습니다. 측정 범위 안의 최대 응답을 표시합니다.");
   if (prominence < 0.1) warnings.push("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.");
   if (scores.filter((score) => Math.abs(score - peakScore) <= Math.max(peakScore, 1e-12) * 1e-6).length > 1) warnings.push("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
   if (ordered[0].hz !== MIN_STIMULATION_FREQUENCY_HZ || ordered[ordered.length - 1].hz !== MAX_STIMULATION_FREQUENCY_HZ) warnings.push("25–40 Hz 양 끝점이 모두 수집되지 않았습니다.");
@@ -72,7 +73,8 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   else warnings.push("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.");
 
   return {
-    estimatedResonanceHz: peakIndex >= 0 ? peak.hz : null,
+    estimatedResonanceHz: peak.hz,
+    peakKind: peakIndex >= 0 ? "interior" : "boundary",
     peakAccelerationRms: round(peak.accelerationRms, 6),
     peakDisplacementRmsM: peakDisplacement,
     peakScore,

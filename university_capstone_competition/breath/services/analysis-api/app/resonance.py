@@ -56,7 +56,7 @@ def analyse_sweep(samples: list[dict]) -> dict:
     prominence = max(0.0, (peak_score - median(scores)) / peak_score)
     warnings = ["이 값은 장치·패널·접촉부를 포함한 측정 시스템의 응답 피크이며, 인체 흉벽의 고유 공진으로 검증된 값은 아닙니다."]
     if peak_index is None:
-        warnings.append("속도 환산 점수의 내부 피크가 없어 예비 후보를 표시하지 않았습니다.")
+        warnings.append("내부 피크는 확인되지 않았습니다. 측정 범위 안의 최대 응답을 표시합니다.")
     if prominence < 0.1:
         warnings.append("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.")
     if sum(abs(score - peak_score) <= max(peak_score, 1e-12) * 1e-6 for score in scores) > 1:
@@ -65,7 +65,8 @@ def analyse_sweep(samples: list[dict]) -> dict:
         warnings.append("25–40 Hz 전체 범위가 수집되지 않았습니다.")
     warnings.append("INA226 앰프 공급 전류는 코일 전류가 아니므로 후보 점수에 사용하지 않았습니다.")
     return {
-        "estimatedResonanceHz": peak["hz"] if peak_index is not None else None,
+        "estimatedResonanceHz": peak["hz"],
+        "peakKind": "interior" if peak_index is not None else "boundary",
         "peakAccelerationRms": round(peak_acceleration, 6),
         "peakDisplacementRmsM": peak_displacement,
         "peakScore": peak_score,
