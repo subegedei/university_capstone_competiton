@@ -54,7 +54,7 @@ float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
 // "measure" command after it has changed the external audio frequency.
 // Let browser-audio frequency transitions and the attached mechanical stack
 // settle before fitting; short settling can leave a transient in the window.
-constexpr uint32_t MEASUREMENT_SETTLE_MS = 1200, MEASUREMENT_CAPTURE_MS = 1600;
+constexpr uint32_t MEASUREMENT_SETTLE_MS = 1200, MEASUREMENT_CAPTURE_MS = 1000;
 constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
 constexpr float MEASUREMENT_MIN_SAMPLES_PER_CYCLE = 5.0f;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
