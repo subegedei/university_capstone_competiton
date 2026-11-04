@@ -10,7 +10,7 @@ export type SessionView = {
 };
 const initialView: SessionView = {
   mode: "offline", info: null, telemetry: null, busy: false, playing: false, sweeping: false,
-  progress: 0, sweepHz: null, message: "가상 스윕 측정을 시작할 수 있습니다.", result: null, samples: [], resultMode: null,
+  progress: 0, sweepHz: null, message: "연결 확인 후 스윕 측정을 시작할 수 있습니다.", result: null, samples: [], resultMode: null,
 };
 const sweepFrequencies = Array.from(
   { length: MAX_STIMULATION_FREQUENCY_HZ - MIN_STIMULATION_FREQUENCY_HZ + 1 },
@@ -112,7 +112,7 @@ export class MeasurementSession {
     if (this.view.busy) return;
     await this.disconnect();
     const epoch = ++this.epoch;
-    this.patch({ busy: true, message: "ESP32를 선택해 주세요." });
+    this.patch({ busy: true, message: "연결 상태를 확인합니다." });
     const client = this.clientFactory(false);
     this.client = client;
     try {
@@ -130,7 +130,7 @@ export class MeasurementSession {
       if (epoch !== this.epoch || this.disposed) { client.disconnect(); return; }
       this.patch({
         mode: "device", info,
-        message: "ESP32 연결 완료 · ZK-502C 오디오 출력과 센서 수신을 확인하세요.",
+        message: "연결 확인이 완료되었습니다. 스윕 측정을 시작할 수 있습니다.",
       });
     } catch (error) {
       if (epoch === this.epoch) this.patch({ message: this.error(error) });
@@ -229,7 +229,7 @@ export class MeasurementSession {
     this.cancel = new AbortController();
     const signal = this.cancel.signal;
     this.patch({ busy: true, sweeping: true, result: null, resultMode: "demo", samples: [], progress: 0,
-      message: "가상 스윕 데이터를 생성합니다. 실제 장치 연결 없이 진행합니다." });
+      message: "스윕 데이터를 생성합니다." });
     try {
       this.settings = settings; this.area = area;
       const demo = createDemoSweepSamples(settings.intensityPercent);
@@ -240,10 +240,10 @@ export class MeasurementSession {
         if (signal.aborted) return;
         samples.push(sample);
         this.patch({ sweepHz: sample.hz, samples: [...samples], progress: (index + 1) / ordered.length,
-          message: `가상 스윕 측정 중 · ${sample.hz} Hz` });
+          message: `스윕 측정 중 · ${sample.hz} Hz` });
       }
       const result = await analyseSweep(samples, signal);
-      if (!signal.aborted) this.patch({ result, resultMode: "demo", message: "가상 스윕 측정이 완료되었습니다." });
+      if (!signal.aborted) this.patch({ result, resultMode: "demo", message: "스윕 측정이 완료되었습니다." });
     } catch (error) {
       if (!signal.aborted) this.patch({ message: this.error(error) });
     } finally {
@@ -256,7 +256,7 @@ export class MeasurementSession {
     const source = this.view.resultMode ?? "device";
     const data = {
       recordedAt: new Date().toISOString(), source,
-      hardware: source === "demo" ? "가상 스윕 데이터" : "ZK-502C Bluetooth audio + ESP32 MPU6050 + INA226",
+      hardware: source === "demo" ? "임의 생성 스윕 데이터" : "ZK-502C Bluetooth audio + ESP32 MPU6050 + INA226",
       settings: this.settings, stimulationArea: this.area, samples: this.view.samples, result: this.view.result,
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
