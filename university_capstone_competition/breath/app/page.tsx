@@ -59,7 +59,6 @@ export default function Dashboard() {
   }, []);
   const settings = { frequencyHz: frequency, intensityPercent: intensity, durationSeconds: minutes * 60 };
   const telemetry = view.telemetry;
-  const connected = view.mode !== "offline";
   const locked = view.busy || view.playing || audioBusy;
 
   async function selectOutput() {
@@ -84,19 +83,15 @@ export default function Dashboard() {
   return <main className={`shell screen-shell-${screen}`} id="home">
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">🫁</span><div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡</h1><p className="subtitle">진동 제어 · 실시간 센서 모니터링</p></div></div>
-      <span className={"connection-indicator " + (connected ? "connected" : "")}><span className="dot" />{connected ? "ESP32 연결됨" : "연결 대기"}</span>
+      <span className="connection-indicator connected"><span className="dot" />가상 측정 모드</span>
       <nav className="section-nav" aria-label="주 메뉴">
         {([ ["home", "home", "홈 · 제어"], ["analysis", "chart", "측정 · 분석"], ["memory", "memory", "메모리"], ["settings", "connection", "설정"] ] as const).map(([id, icon, label]) => <button key={id} type="button" className={screen === id ? "active" : ""} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><UiIcon kind={icon} /><span>{label}</span></button>)}
       </nav>
     </header>
 
     <section className="setup panel" id="connection" aria-labelledby="connection-heading" hidden={screen !== "settings"}>
-      <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">SYSTEM READY</p><h2 id="connection-heading">장치 연결 상태</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
-      <div className="header-actions">
-        {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />ESP32 연결 해제</button>
-          : <button className="connection" disabled={locked} onClick={() => void session.current?.connect()}>ESP32 연결</button>}
-      </div>
-      <p className="helper">자동으로 웹 블루투스로 ESP32와 연결됩니다.</p>
+      <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">VIRTUAL MODE</p><h2 id="connection-heading">오디오 출력 설정</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
+      <p className="helper">현재 가상 스윕 모드입니다. 실제 ESP32 연결이나 센서 연산 없이 임의 데이터를 생성합니다.</p>
       <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button></div>
       <label className="checkbox"><input type="checkbox" checked={outputConfirmed} disabled={locked} onChange={(event) => setOutputConfirmed(event.target.checked)} />ZK-502C 출력 준비를 확인했습니다.</label>
       {audioMessage && <p className="helper" role="status">{audioMessage}</p>}
@@ -104,7 +99,7 @@ export default function Dashboard() {
 
     <section className="home-summary hero-card" hidden={screen !== "home"}>
       <div><p className="eyebrow">SESSION OVERVIEW</p><h2>{view.playing && !view.sweeping ? "남은 시간" : "설정 시간"}</h2><strong>{view.playing && !view.sweeping && remaining !== null ? time(remaining) : time(minutes * 60)}</strong><p className="hero-note">선택 설정 · {frequency} Hz · {intensity}% · {areaLabel(area)}</p></div>
-      <div className="status"><span className={"badge " + (view.playing ? "running" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? "오디오 출력 중" : "대기 중"}</span><p>{view.message}</p>{!connected && !view.playing && <button className="summary-link" onClick={() => setScreen("settings")}>센서 스윕에는 ESP32 연결이 필요합니다 · 설정 →</button>}</div>
+      <div className="status"><span className={"badge " + (view.sweeping ? "running" : "idle")}>{view.sweeping ? "가상 스윕 측정 중" : "가상 측정 대기"}</span><p>{view.message}</p></div>
     </section>
 
     <section className="hero-card" hidden={screen !== "analysis"}>
@@ -142,7 +137,7 @@ export default function Dashboard() {
       </article>
 
       <aside className="side-stack" id="sensors" aria-label="스윕 중 센서 상태" hidden={screen !== "analysis" || !view.sweeping}>
-        <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{connected ? "BLE" : "OFFLINE"}</span></div>
+        <article className="panel live"><div className="panel-title"><h2>가상 상태</h2><span className="tag">RANDOM</span></div>
           <Metric label="설정된 출력 주파수" text={view.playing ? value(frequency, "Hz", 0) : "—"} />
           <Metric label="설정된 출력 레벨" text={view.playing ? value(intensity, "%", 0) : "—"} />
           <Metric label="남은 시간" text={view.playing && !view.sweeping && remaining !== null ? time(remaining) : "--:--"} />
@@ -165,7 +160,7 @@ export default function Dashboard() {
     <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
       {view.samples.length >= 3 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
-        <button className="start" disabled={!connected || locked || intensity === 0} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
+        <button className="start" disabled={locked || intensity === 0} onClick={() => void session.current?.sweep(settings, area)}>가상 스윕 측정</button>{view.sweeping && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
       {view.sweeping && telemetry && !telemetry.power.ready && <p className="warning">INA226 응답을 확인하지 못했습니다. 가속도 스윕은 진행되지만 전류·전력 값은 비워 둡니다.</p>}
       <p className="helper">먼저 25–40 Hz를 약 2 Hz 간격으로 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
