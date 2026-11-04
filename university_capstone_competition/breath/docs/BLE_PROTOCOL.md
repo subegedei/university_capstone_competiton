@@ -11,7 +11,7 @@ v2(browser-bluetooth) 및 기존 LSM6DSOX 펌웨어와 호환되지 않습니다
 - Info: f3f1a003-7c5b-4f18-b0bb-7d9cb9d00001 (Read, 완전한 JSON)
 
 Info의 protocolVersion=3, audioSource="esp32-dac", outputMode="common",
-sensors={imu:"MPU6050",power:"INA226"}, outputEnabled:boolean이 필수입니다.
+sensors={imu:"MPU6050",power:"none"}, outputEnabled:boolean이 필수입니다.
 outputEnabled는 설정 허용 여부이지 전기적 안전 인증이 아닙니다.
 
 ## 프레임과 명령
@@ -21,7 +21,7 @@ Control/Notify는 UTF-8 NDJSON(마지막 LF), ATT 청크 최대 20바이트.
 명령은 type, protocolVersion, commandId, sessionId, command, frequencyHz, intensityPercent, durationSeconds를 포함합니다.
 
 `prepare`는 스윕 직전에만 MPU6050 가속도 샘플링을 125 Hz로 켠다. `stop`은 센서를 절전으로 전환하며,
-유휴 연결에서는 가속도·전류 수치를 실시간 표시하지 않는다. `measure`는 `prepare` 이후 실제 샘플이
+유휴 연결에서는 가속도 수치를 실시간 표시하지 않는다. 이 하드웨어 구성에는 전류 센서가 없습니다. `measure`는 `prepare` 이후 실제 샘플이
 수신되어 `imu.ready=true`가 된 뒤에만 허용된다.
 주파수 25–40Hz, 레벨 0–100%, 시간 정수 1–1800초. 45Hz 이상은 하드웨어 보호를 위해 펌웨어와 웹 통신 규약 양쪽에서 거절합니다.
 start/sweep는 새로운 세션을 시작, update는 같은 세션에서 주파수·레벨만 변경하며 종료 시각은 유지합니다.

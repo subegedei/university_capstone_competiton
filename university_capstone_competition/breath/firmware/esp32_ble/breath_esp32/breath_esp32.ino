@@ -261,7 +261,7 @@ void retrySensors() {
       }
     } else mpuNoResponseCycles = 0;
   }
-  if (!inaConfigured) {
+  if (INA226_PRESENT && !inaConfigured) {
     uint8_t timeouts = 0;
     bool response = false;
     for (uint8_t address = INA_ADDRESS_MIN; address <= INA_ADDRESS_MAX; ++address) {
@@ -315,7 +315,7 @@ void handleCommand(const Frame &frame) {
     else startMeasurement(hz);
   } else if (kind == "start" || kind == "sweep" || kind == "update") {
     if (!OUTPUT_ENABLED) error = "Output locked: verify amplifier and config.h";
-    else if (!imuReady || !powerReady) error = "MPU6050 and INA226 must be ready";
+    else if (!imuReady || (INA226_PRESENT && !powerReady)) error = "MPU6050 must be ready";
     else if (kind == "update" && (!before.active || sid != sessionId)) error = "Session inactive";
     else if (kind != "update" && before.active) error = "Stop current session first";
     else {
@@ -340,7 +340,7 @@ void handleCommand(const Frame &frame) {
 void telemetry() {
   // Keep INA226 observable while idle as well: this is essential for wiring
   // diagnostics and does not enable MPU6050 sampling outside a sweep.
-  readPower();
+  if (INA226_PRESENT) readPower(); else powerReady = false;
   imuReady = imuFound && lastImu != 0 && millis() - lastImu < 500;
   // Browser Bluetooth audio is independent of INA226. For the optional DAC
   // build, retain the existing fail-safe when either sensor is unavailable.
@@ -402,7 +402,7 @@ void setup() {
   JsonDocument doc;
   doc["protocolVersion"] = 3; doc["firmwareVersion"] = "3.0.0";
   doc["audioSource"] = "esp32-dac"; doc["outputMode"] = "common"; doc["outputEnabled"] = OUTPUT_ENABLED;
-  doc["sensors"]["imu"] = "MPU6050"; doc["sensors"]["power"] = "INA226";
+  doc["sensors"]["imu"] = "MPU6050"; doc["sensors"]["power"] = INA226_PRESENT ? "INA226" : "none";
   String value; serializeJson(doc, value); info->setValue(value.c_str());
   service->start(); BLEDevice::getAdvertising()->addServiceUUID(SERVICE);
   BLEDevice::getAdvertising()->setScanResponse(true); BLEDevice::startAdvertising();

@@ -165,12 +165,6 @@ export default function Dashboard() {
           <div className="axes"><span>X {value(telemetry?.imu.linearAcceleration?.x, "", 3)}</span><span>Y {value(telemetry?.imu.linearAcceleration?.y, "", 3)}</span><span>Z {value(telemetry?.imu.linearAcceleration?.z, "", 3)}</span></div>
           <p className="helper">샘플링 {value(telemetry?.imu.sampleRateHz, "Hz", 0)} · 윈도우 {telemetry?.imu.sampleCount ?? "—"}개</p>
         </article>
-        <article className="panel sensor"><div className="panel-title"><h2>INA226 · 앰프 전원</h2><span className={"tag " + (telemetry?.power.ready && telemetry.power.calibrated ? "good" : "")}>{!telemetry ? "대기" : !telemetry.power.ready ? "센서 미준비" : telemetry.power.calibrated ? "보정 완료" : "전류 보정 필요"}</span></div>
-          <Metric label="버스 전압" text={value(telemetry?.power.ready ? telemetry.power.busVoltageV : null, "V")} />
-          <Metric label="전원 전류" text={value(telemetry?.power.ready && telemetry.power.calibrated ? telemetry.power.currentA : null, "A", 3)} />
-          <Metric label="소비 전력" text={value(telemetry?.power.ready && telemetry.power.calibrated ? telemetry.power.powerW : null, "W")} />
-          <p className="helper">앰프 전체 전원 측정값입니다. 액추에이터별 코일 전류는 아닙니다.</p>
-        </article>
       </aside>
     </section>
 
@@ -178,7 +172,6 @@ export default function Dashboard() {
       {view.samples.length >= 3 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
         <button className="start" disabled={!connected || locked || intensity === 0} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
-      {view.sweeping && telemetry && !telemetry.power.ready && <p className="warning">INA226 전류 센서 수신 대기 중입니다. 가속도 스윕은 진행되며 전류·전력 값은 비워 둡니다.</p>}
       <p className="helper">먼저 25–40 Hz를 약 2 Hz 간격으로 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />

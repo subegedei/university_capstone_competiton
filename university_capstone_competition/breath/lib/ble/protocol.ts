@@ -17,7 +17,7 @@ export type ControlCommand = Settings & {
 };
 export type DeviceInfo = {
   protocolVersion: 3; firmwareVersion: string; audioSource: "esp32-dac";
-  sensors: { imu: "MPU6050"; power: "INA226" }; outputMode: "common"; outputEnabled: boolean;
+  sensors: { imu: "MPU6050"; power: "INA226" | "none" }; outputMode: "common"; outputEnabled: boolean;
 };
 export type Telemetry = {
   type: "telemetry"; protocolVersion: 3; bootId: string; sequence: number;
@@ -50,8 +50,8 @@ export function parseDeviceInfo(raw: string): DeviceInfo {
   if (!record(data) || data.protocolVersion !== 3 || typeof data.firmwareVersion !== "string" ||
     data.audioSource !== "esp32-dac" || typeof data.outputEnabled !== "boolean" ||
     data.outputMode !== "common" || !record(data.sensors) ||
-    data.sensors.imu !== "MPU6050" || data.sensors.power !== "INA226") {
-    throw new Error("이 펌웨어는 MPU6050·INA226 통신 규약 v3와 일치하지 않습니다. docs/BLE_PROTOCOL.md를 확인하세요.");
+    data.sensors.imu !== "MPU6050" || !["INA226", "none"].includes(String(data.sensors.power))) {
+    throw new Error("이 펌웨어는 MPU6050 통신 규약 v3와 일치하지 않습니다. docs/BLE_PROTOCOL.md를 확인하세요.");
   }
   return data as DeviceInfo;
 }
