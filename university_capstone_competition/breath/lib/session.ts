@@ -25,6 +25,8 @@ const SWEEP_DURATION_SECONDS = 90;
 const DEVICE_SETTLING_MS = 1500;
 const DEVICE_RESULT_WAIT_MS = 3200;
 const MAX_MEASUREMENT_ATTEMPTS = 2;
+const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
+const MIN_SWEEP_SAMPLE_RATE_HZ = 120;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -103,7 +105,7 @@ export class MeasurementSession {
       data.imu.measurement.frequencyHz === collector.hz) {
       const measurement = data.imu.measurement;
       if (measurement.quality === "MEASURE_OK" && measurement.fundamentalAccelerationRms !== null &&
-        measurement.sampleRateHz >= 200 && measurement.sampleCount >= 64) collector.windows.push(data);
+        measurement.sampleRateHz >= MIN_SWEEP_SAMPLE_RATE_HZ && measurement.sampleCount >= 64) collector.windows.push(data);
       else collector.invalid = data;
     }
   };
@@ -150,13 +152,27 @@ export class MeasurementSession {
     this.audio.start(35, 10, 2, area);
   }
 
-  private ensureReady(settings: Settings, requirePower = true) {
+  private ensureReady(settings: Settings, requirePower = true, requireImu = true) {
     if (!this.client || this.view.mode === "offline" || !this.view.telemetry || performance.now() - this.receivedAt > 4000) {
       throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");
     }
     if (this.view.telemetry.status === "error") throw new Error(this.view.telemetry.error || "ESP32 센서 오류를 확인하세요.");
-    if (!this.view.telemetry.imu.ready || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "BNO085 가속도 센서가 준비돼야 합니다.");
+    if ((requireImu && !this.view.telemetry.imu.ready) || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "BNO085 가속도 센서가 준비돼야 합니다.");
     if (settings.intensityPercent <= 0) throw new Error("출력 레벨을 0%보다 높게 설정하세요.");
+  }
+
+  private async prepareSweepSensor(settings: Settings, signal: AbortSignal) {
+    if (!this.client || !this.view.telemetry || performance.now() - this.receivedAt > 4000) {
+      throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");
+    }
+    if (this.view.mode === "device") await this.send("prepare", settings, this.sessionId);
+    const deadline = performance.now() + SWEEP_SENSOR_READY_TIMEOUT_MS;
+    while ((!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < MIN_SWEEP_SAMPLE_RATE_HZ) && performance.now() < deadline) {
+      await delay(150, signal);
+    }
+    if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < MIN_SWEEP_SAMPLE_RATE_HZ) {
+      throw new Error("BNO085 선형 가속도 센서가 125 Hz 측정 준비를 완료하지 못했습니다.");
+    }
   }
 
   async start(settings: Settings, area: StimulationArea) {
@@ -165,7 +181,7 @@ export class MeasurementSession {
     const signal = this.cancel.signal;
     this.patch({ busy: true });
     try {
-      this.ensureReady(settings);
+      this.ensureReady(settings, false, false);
       this.settings = settings; this.area = area;
       if (this.view.mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(settings.frequencyHz, settings.intensityPercent, settings.durationSeconds, area); }
       this.patch({ playing: true, message: this.view.mode === "demo" ? "가상 진동을 시작했습니다." : "ZK-502C에 Bluetooth 오디오 진동음을 보내고 있습니다." });
@@ -214,13 +230,12 @@ export class MeasurementSession {
     let failureMessage = "";
     this.patch({ busy: true, result: null, resultMode: mode === "demo" ? "demo" : "device", samples: [], progress: 0 });
     try {
-      this.ensureReady(settings, false);
-      if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < 200) throw new Error("스윕에는 BNO085 선형 가속도 200Hz 이상이 필요합니다.");
       const sweepSettings = { ...settings, frequencyHz: coarseSweepFrequencies[0], durationSeconds: SWEEP_DURATION_SECONDS };
-      this.settings = sweepSettings; this.area = area;
+      this.settings = sweepSettings; this.area = area; this.sessionId = crypto.randomUUID();
+      await this.prepareSweepSensor(sweepSettings, signal);
+      if (signal.aborted) return;
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
-      this.sessionId = crypto.randomUUID();
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 약 2 Hz 간격으로 탐색합니다." });
       const samples: SweepSample[] = [];
       const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
@@ -321,6 +336,12 @@ export class MeasurementSession {
       }
     } finally {
       this.audio.stop(); this.collect = undefined; this.clearTimers();
+      const sessionId = this.sessionId;
+      this.sessionId = "";
+      if (sessionId && this.client) {
+        try { await this.send("stop", this.settings, sessionId); }
+        catch (error) { if (!failureMessage) failureMessage = "센서 대기 전환 확인 실패: " + this.error(error); }
+      }
       this.patch({ playing: false, sweeping: false, busy: false, sweepHz: null,
         ...(failureMessage && !this.view.message.startsWith("정지 확인 실패") ? { message: failureMessage } : {}) });
     }

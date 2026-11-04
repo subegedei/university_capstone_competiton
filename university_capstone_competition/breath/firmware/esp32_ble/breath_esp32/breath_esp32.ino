@@ -31,11 +31,20 @@ struct OutputState {
 } output;
 struct Frame { uint32_t generation; char text[1400]; };
 bool imuFound = false, imuReady = false, powerReady = false, sweeping = false;
+// The BNO085 only produces reports while a sweep is being prepared or run.
+// This prevents a permanently active report from loading the shared I2C bus.
+bool imuReportEnabled = false;
 bool inaConfigured = false;
 uint8_t powerReadFailures = 0;
 uint8_t bnoAddress = 0, inaAddress = 0;
 uint32_t lastSensorRetry = 0, imuInitAt = 0;
+uint8_t bnoNoResponseCycles = 0;
 constexpr uint32_t SENSOR_RETRY_MS = 5000;
+constexpr uint32_t IMU_REPORT_INTERVAL_US = 8000; // 125 Hz: >3 samples/cycle at 40 Hz.
+// The IMU gets a shorter retry interval while it is offline; the healthy
+// INA226 continues being read once per telemetry window.
+constexpr uint32_t BNO_OFFLINE_RETRY_MS = 2000;
+constexpr uint8_t BNO_BUS_RECOVERY_AFTER_MISSES = 2;
 // A USB power source can bring up the ESP32 before the BNO085 has completed
 // its own power-on boot.  Give the sensor a stable supply before its first
 // SHTP session, then start from a known reset state.
@@ -51,6 +60,7 @@ float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
 // "measure" command after it has changed the external audio frequency.
 constexpr uint32_t MEASUREMENT_SETTLE_MS = 800, MEASUREMENT_CAPTURE_MS = 1600;
 constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
+constexpr float MEASUREMENT_MIN_SAMPLES_PER_CYCLE = 3.0f;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
 struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES], sensorTime[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; bool sensorClockValid = true; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
 constexpr char MEASUREMENT_AXIS = 'Z';
@@ -145,17 +155,18 @@ void readPower() {
   // second quadruples I2C work and makes a single transient read look fatal.
   const bool valid = inaConfigured && inaAddress && readRegister(inaAddress, 0x02, bus) &&
     readRegister(inaAddress, 0x01, shunt);
-  powerReady = valid;
   if (valid) {
-    powerReadFailures = 0;
+    powerReadFailures = 0; powerReady = true;
     voltage = bus * 0.00125f;
     current = SHUNT_OHMS > 0 ? int16_t(shunt) * 0.0000025f / SHUNT_OHMS : 0;
   } else if (inaConfigured) {
+    // One failed transaction must not turn a valid INA226 reading into a
+    // visible 0.  Preserve the last confirmed value until repeated failures.
     if (++powerReadFailures >= 3) {
-      inaConfigured = false; inaAddress = 0; powerReadFailures = 0;
+      inaConfigured = false; inaAddress = 0; powerReadFailures = 0; powerReady = false;
       Serial.println("INA226: three consecutive reads failed; retrying configuration");
-    } else Serial.println("INA226: transient read failure; next window will retry");
-  }
+    } else { powerReady = true; Serial.println("INA226: transient read failure; retaining last confirmed value"); }
+  } else powerReady = false;
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
 bool solve3x3(double a[3][4], double x[3]) { for (int k=0;k<3;++k) { int b=k; for(int r=k+1;r<3;++r) if(fabs(a[r][k])>fabs(a[b][k])) b=r; if(fabs(a[b][k])<1e-9) return false; for(int j=k;j<4;++j){double t=a[k][j];a[k][j]=a[b][j];a[b][j]=t;} double d=a[k][k]; for(int j=k;j<4;++j)a[k][j]/=d; for(int r=0;r<3;++r)if(r!=k){double q=a[r][k];for(int j=k;j<4;++j)a[r][j]-=q*a[k][j];}} for(int k=0;k<3;++k)x[k]=a[k][3]; return true; }
@@ -167,7 +178,7 @@ void prepareMeasurementTimes() {
   if (measurement.sensorClockValid && measurement.count > 1)
     for (size_t i = 0; i < measurement.count; ++i) measurement.time[i] = measurement.sensorTime[i];
 }
-void finishMeasurement() { if(measurement.count<64){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.rate=sampleCount*1000.0/max(1UL,millis()-windowStart);measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} uint64_t t0=measurement.time[0],t1=measurement.time[measurement.count-1]; if(t1<=t0){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} double seconds=(t1-t0)*1e-6, n[3][3]={{0}},rhs[3]={0},mean=0,total=0; measurement.rate=(measurement.count-1)/seconds; for(size_t i=0;i<measurement.count;++i){double t=(measurement.time[i]-t0)*1e-6,y=measurement.value[i],angle=TWO_PI*measurement.hz*t,v[3]={1,cos(angle),sin(angle)};mean+=y;total+=y*y;for(int r=0;r<3;++r){rhs[r]+=v[r]*y;for(int c=0;c<3;++c)n[r][c]+=v[r]*v[c];}} mean/=measurement.count;double a[3][4],b[3];for(int r=0;r<3;++r){for(int c=0;c<3;++c)a[r][c]=n[r][c];a[r][3]=rhs[r];}if(!solve3x3(a,b)){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;}double sst=total-measurement.count*mean*mean,sse=total-(b[0]*rhs[0]+b[1]*rhs[1]+b[2]*rhs[2]);measurement.r2=sst>1e-12?1-fmax(0.0,sse)/sst:NAN;measurement.rms=sqrt(b[1]*b[1]+b[2]*b[2])/sqrt(2.0);measurement.state=MEASUREMENT_COMPLETE;if(measurement.rate<5*measurement.hz)measurement.quality="LOW_SAMPLE_RATE";else if(!isfinite(measurement.r2)||measurement.r2<.60)measurement.quality="LOW_FIT_R2";else measurement.quality="MEASURE_OK"; }
+void finishMeasurement() { if(measurement.count<64){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.rate=sampleCount*1000.0/max(1UL,millis()-windowStart);measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} uint64_t t0=measurement.time[0],t1=measurement.time[measurement.count-1]; if(t1<=t0){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} double seconds=(t1-t0)*1e-6, n[3][3]={{0}},rhs[3]={0},mean=0,total=0; measurement.rate=(measurement.count-1)/seconds; for(size_t i=0;i<measurement.count;++i){double t=(measurement.time[i]-t0)*1e-6,y=measurement.value[i],angle=TWO_PI*measurement.hz*t,v[3]={1,cos(angle),sin(angle)};mean+=y;total+=y*y;for(int r=0;r<3;++r){rhs[r]+=v[r]*y;for(int c=0;c<3;++c)n[r][c]+=v[r]*v[c];}} mean/=measurement.count;double a[3][4],b[3];for(int r=0;r<3;++r){for(int c=0;c<3;++c)a[r][c]=n[r][c];a[r][3]=rhs[r];}if(!solve3x3(a,b)){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;}double sst=total-measurement.count*mean*mean,sse=total-(b[0]*rhs[0]+b[1]*rhs[1]+b[2]*rhs[2]);measurement.r2=sst>1e-12?1-fmax(0.0,sse)/sst:NAN;measurement.rms=sqrt(b[1]*b[1]+b[2]*b[2])/sqrt(2.0);measurement.state=MEASUREMENT_COMPLETE;if(measurement.rate<MEASUREMENT_MIN_SAMPLES_PER_CYCLE*measurement.hz)measurement.quality="LOW_SAMPLE_RATE";else if(!isfinite(measurement.r2)||measurement.r2<.60)measurement.quality="LOW_FIT_R2";else measurement.quality="MEASURE_OK"; }
 void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";Serial.println("MEASURE: capturing");}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS){prepareMeasurementTimes();finishMeasurement();if (strcmp(measurement.quality,"MEASURE_OK") != 0) measurement.state=MEASUREMENT_INVALID;Serial.printf("MEASURE: %s samples=%u rate=%.1f r2=%.3f rms=%.6f\n",measurement.quality,(unsigned)measurement.count,measurement.rate,measurement.r2,measurement.rms);} }
 uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
@@ -195,15 +206,25 @@ void resetBnoAndI2C() {
   Wire.setClock(100000);
   Wire.setTimeOut(20);
 }
+bool setImuReport(bool enabled) {
+  if (!imuFound) return false;
+  // The Adafruit wrapper forwards an interval of zero as the SH-2 disable
+  // request.  Do not use any rotation-vector report in this firmware.
+  if (!bno.enableReport(SH2_LINEAR_ACCELERATION, enabled ? IMU_REPORT_INTERVAL_US : 0)) return false;
+  imuReportEnabled = enabled;
+  if (!enabled) { imuReady = false; lastImu = 0; resetWindow(); }
+  Serial.printf("BNO085: linear acceleration report %s\n", enabled ? "enabled at 125 Hz" : "disabled");
+  return true;
+}
 void retrySensors() {
   // Address probing may block the shared bus and create gaps in a 1.6 s fit.
   if (measurement.state == MEASUREMENT_CAPTURING || measurement.state == MEASUREMENT_SETTLING) return;
-  if (imuFound && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
+  if (imuFound && imuReportEnabled && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
     stopOutput();
     Serial.println("BNO085: no data for 5 seconds; restarting sensor session");
     imuFound = false; imuReady = false; lastImu = 0;
+    bnoNoResponseCycles = 0;
     sh2_close();
-    resetBnoAndI2C();
   }
   if (!imuFound) {
     const uint8_t bnoCandidates[] = { BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE };
@@ -216,19 +237,28 @@ void retrySensors() {
       response = true;
       Serial.printf("BNO085: 0x%02X responding; initializing\n", address);
       const bool initialized = bno.begin_I2C(address, &Wire);
-      if (initialized && bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
-        bnoAddress = address; imuFound = true; imuInitAt = millis(); lastImu = 0;
-        Serial.println("BNO085: initialized; waiting for acceleration data");
+      if (initialized) {
+        bnoNoResponseCycles = 0;
+        bnoAddress = address; imuFound = true; imuReportEnabled = false; imuReady = false; imuInitAt = millis(); lastImu = 0;
+        Serial.println("BNO085: initialized; report remains off until sweep preparation");
         break;
       }
       Serial.println("BNO085: initialization or acceleration report setup failed; retrying");
       if (initialized) sh2_close();
-      resetBnoAndI2C();
-      // The bus object was restarted; try again on the next 5-second cycle.
+      // Do not reset the shared bus for a BNO-only error: INA226 shares it.
       break;
     }
-    if (!response) Serial.printf("BNO085: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
-      BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, timeouts);
+    if (!response) {
+      Serial.printf("BNO085: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
+        BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, timeouts);
+      // A controller restart is justified only when neither device is usable.
+      // Restarting it for an isolated BNO085 failure makes INA226 disappear too.
+      if (++bnoNoResponseCycles >= BNO_BUS_RECOVERY_AFTER_MISSES && !inaConfigured) {
+        bnoNoResponseCycles = 0;
+        Serial.println("BNO085: repeated address misses; attempting I2C controller recovery");
+        resetBnoAndI2C();
+      }
+    } else bnoNoResponseCycles = 0;
   }
   if (!inaConfigured) {
     uint8_t timeouts = 0;
@@ -271,10 +301,14 @@ void handleCommand(const Frame &frame) {
   if (cmd["protocolVersion"] != 3 || cmd["type"] != "control") error = "Protocol v3 required";
   else if (!isfinite(hz) || hz < MIN_STIMULATION_FREQUENCY_HZ || hz > MAX_STIMULATION_FREQUENCY_HZ || !isfinite(level) || level < 0 || level > 100 ||
     !cmd["durationSeconds"].is<int>() || duration < 1 || duration > 1800) error = "Invalid settings";
-  else if (kind == "stop") { stopOutput(); sweeping = false; }
+  else if (kind == "stop") { stopOutput(); sweeping = false; if (imuReportEnabled) setImuReport(false); }
   else if (kind == "heartbeat") {
     if (!before.active || sid != sessionId) error = "Session inactive";
     else { portENTER_CRITICAL(&outputMux); output.lease = esp_timer_get_time() + LEASE_MS * 1000LL; portEXIT_CRITICAL(&outputMux); }
+  } else if (kind == "prepare") {
+    if (!imuFound) error = "BNO085 is offline";
+    else if (!setImuReport(true)) error = "BNO085 report setup failed";
+    else sweeping = true;
   } else if (kind == "measure") {
     if (!imuReady) error = "BNO085 must be ready";
     else startMeasurement(hz);
@@ -303,7 +337,9 @@ void handleCommand(const Frame &frame) {
   enqueue(ack);
 }
 void telemetry() {
-  readPower();
+  // INA226 is sampled only for an active sweep.  Keeping it idle otherwise
+  // avoids unnecessary shared-I2C transactions and stale dashboard values.
+  if (sweeping) readPower(); else powerReady = false;
   imuReady = imuFound && lastImu != 0 && millis() - lastImu < 500;
   // Browser Bluetooth audio is independent of INA226. For the optional DAC
   // build, retain the existing fail-safe when either sensor is unavailable.
@@ -391,7 +427,10 @@ void loop() {
   }
   Frame frame;
   if (xQueueReceive(rxQueue, &frame, 0) == pdTRUE) handleCommand(frame);
-  if (millis() - lastSensorRetry >= SENSOR_RETRY_MS) {
+  // Retry a missing BNO085 sooner, but do not block an ongoing frequency
+  // capture with I2C scanning/reinitialization.
+  const uint32_t retryInterval = imuFound ? SENSOR_RETRY_MS : BNO_OFFLINE_RETRY_MS;
+  if (millis() - lastSensorRetry >= retryInterval) {
     lastSensorRetry = millis();
     retrySensors();
   }
@@ -401,7 +440,7 @@ void loop() {
       if (measurement.state == MEASUREMENT_SETTLING || measurement.state == MEASUREMENT_CAPTURING) {
         measurement.state = MEASUREMENT_INVALID; measurement.quality = "BNO085_RESET";
       }
-      if (!bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
+      if (imuReportEnabled && !bno.enableReport(SH2_LINEAR_ACCELERATION, IMU_REPORT_INTERVAL_US)) {
         Serial.println("BNO085: report setup after reset failed; retrying");
         imuFound = false; imuReady = false; sh2_close();
       }

@@ -13,7 +13,7 @@ export type DeviceStatus = "idle" | "running" | "sweeping" | "error";
 export type Settings = { frequencyHz: number; intensityPercent: number; durationSeconds: number };
 export type ControlCommand = Settings & {
   type: "control"; protocolVersion: 3; commandId: string; sessionId: string;
-  command: "start" | "stop" | "update" | "sweep" | "heartbeat" | "measure";
+  command: "start" | "stop" | "update" | "sweep" | "heartbeat" | "prepare" | "measure";
 };
 export type DeviceInfo = {
   protocolVersion: 3; firmwareVersion: string; audioSource: "esp32-dac";
@@ -95,7 +95,7 @@ export class JsonLineDecoder {
 
 export function encodeCommand(command: ControlCommand): Uint8Array[] {
   if (command.type !== "control" || command.protocolVersion !== 3 ||
-      !["start", "stop", "update", "sweep", "heartbeat", "measure"].includes(command.command) ||
+      !["start", "stop", "update", "sweep", "heartbeat", "prepare", "measure"].includes(command.command) ||
       !id(command.commandId) || !id(command.sessionId) || !numberIn(command.frequencyHz, MIN_STIMULATION_FREQUENCY_HZ, MAX_STIMULATION_FREQUENCY_HZ) || !numberIn(command.intensityPercent, 0, 100) ||
       !Number.isInteger(command.durationSeconds) || !numberIn(command.durationSeconds, 1, 1800) || !command.sessionId || !command.commandId) {
     throw new Error("주파수·강도·시간 설정을 확인하세요.");

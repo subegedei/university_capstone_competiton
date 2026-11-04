@@ -62,8 +62,6 @@ export default function Dashboard() {
   const settings = { frequencyHz: frequency, intensityPercent: intensity, durationSeconds: minutes * 60 };
   const telemetry = view.telemetry;
   const connected = view.mode !== "offline";
-  const sensorReady = connected && !!telemetry && telemetry.status !== "error" && telemetry.imu.ready && (view.mode === "demo" || outputConfirmed);
-  const ready = sensorReady && !!telemetry?.power.ready;
   const locked = view.busy || view.playing || audioBusy;
 
   async function selectOutput() {
@@ -138,7 +136,7 @@ export default function Dashboard() {
         <Slider label="출력 레벨" value={intensity} unit="%" min={0} max={100} step={5} disabled={view.sweeping || view.busy} onChange={setIntensity} />
         <Slider label="작동 시간" value={minutes} unit="분" min={1} max={30} step={1} disabled={view.playing || view.busy} onChange={setMinutes} />
         <p className="helper">상엽은 왼쪽 채널, 하엽은 오른쪽 채널로 보냅니다. 둘 다를 선택하면 양쪽에 같은 주파수를 보냅니다.</p>
-        <div className="actions"><button className="start" disabled={!ready || locked || intensity === 0} onClick={() => void session.current?.start(settings, area)}><UiIcon kind="play" /><span>진동 시작<small>START</small></span></button>
+        <div className="actions"><button className="start" disabled={!connected || locked || intensity === 0} onClick={() => void session.current?.start(settings, area)}><UiIcon kind="play" /><span>진동 시작<small>START</small></span></button>
           <button className="stop" disabled={!connected} onClick={() => { void session.current?.stop(); }}><UiIcon kind="stop" /><span>정지<small>STOP</small></span></button></div>
         <p className="helper">작동 중 주파수·출력 레벨을 바꾼 뒤 설정 적용을 누르세요. 종료 시각은 유지됩니다.</p>
       </article>
@@ -155,7 +153,7 @@ export default function Dashboard() {
         </div>
       </article>
 
-      <aside className="side-stack" id="sensors" aria-label="실시간 센서 상태" hidden={screen !== "analysis"}>
+      <aside className="side-stack" id="sensors" aria-label="스윕 중 센서 상태" hidden={screen !== "analysis" || !view.sweeping}>
         <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{view.mode === "demo" ? "DEMO" : connected ? "BLE" : "OFFLINE"}</span></div>
           <Metric label="설정된 출력 주파수" text={view.playing ? value(frequency, "Hz", 0) : "—"} />
           <Metric label="설정된 출력 레벨" text={view.playing ? value(intensity, "%", 0) : "—"} />
@@ -179,8 +177,8 @@ export default function Dashboard() {
     <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
       {view.samples.length >= 3 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
-        <button className="start" disabled={!sensorReady || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
-      {telemetry && !telemetry.power.ready && <p className="warning">INA226 전류 센서 수신 대기 중입니다. 가속도 스윕은 진행되며 전류·전력 값은 비워 둡니다.</p>}
+        <button className="start" disabled={!connected || locked || intensity === 0} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
+      {view.sweeping && telemetry && !telemetry.power.ready && <p className="warning">INA226 전류 센서 수신 대기 중입니다. 가속도 스윕은 진행되며 전류·전력 값은 비워 둡니다.</p>}
       <p className="helper">먼저 25–40 Hz를 약 2 Hz 간격으로 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />

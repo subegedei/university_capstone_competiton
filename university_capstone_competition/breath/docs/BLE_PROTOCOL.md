@@ -19,6 +19,10 @@ outputEnabled는 설정 허용 여부이지 전기적 안전 인증이 아닙니
 Control/Notify는 UTF-8 NDJSON(마지막 LF), ATT 청크 최대 20바이트.
 한 청크가 JSON 한 개라는 가정은 금지합니다. Notify의 ACK와 telemetry는 직렬로 전송합니다.
 명령은 type, protocolVersion, commandId, sessionId, command, frequencyHz, intensityPercent, durationSeconds를 포함합니다.
+
+`prepare`는 스윕 직전에만 BNO085의 선형 가속도 보고를 125 Hz로 켠다. `stop`은 보고를 다시 끄며,
+유휴 연결에서는 가속도·전류 수치를 실시간 표시하지 않는다. `measure`는 `prepare` 이후 실제 샘플이
+수신되어 `imu.ready=true`가 된 뒤에만 허용된다.
 주파수 25–40Hz, 레벨 0–100%, 시간 정수 1–1800초. 45Hz 이상은 하드웨어 보호를 위해 펌웨어와 웹 통신 규약 양쪽에서 거절합니다.
 start/sweep는 새로운 세션을 시작, update는 같은 세션에서 주파수·레벨만 변경하며 종료 시각은 유지합니다.
 stop은 현재 출력을 정지합니다. 재연결하면 자동 시작하지 않습니다.
