@@ -1,6 +1,7 @@
 #pragma once
 // ZK-502C receives audio over Bluetooth; GPIO25 DAC is not wired to its AUX input.
 constexpr bool OUTPUT_ENABLED = false;
+// ESP32 DEVKIT V1 default I2C wiring: SDA -> GPIO21, SCL -> GPIO22.
 constexpr int SDA_PIN = 21, SCL_PIN = 22;
 // This build uses only VCC, GND, SDA and SCL for the BNO085.
 // Set these to the actual ESP32 pins only after wiring the optional lines.

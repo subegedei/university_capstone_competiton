@@ -337,9 +337,9 @@ void handleCommand(const Frame &frame) {
   enqueue(ack);
 }
 void telemetry() {
-  // INA226 is sampled only for an active sweep.  Keeping it idle otherwise
-  // avoids unnecessary shared-I2C transactions and stale dashboard values.
-  if (sweeping) readPower(); else powerReady = false;
+  // Keep INA226 observable while idle as well: this is essential for wiring
+  // diagnostics and does not enable the BNO085 report outside a sweep.
+  readPower();
   imuReady = imuFound && lastImu != 0 && millis() - lastImu < 500;
   // Browser Bluetooth audio is independent of INA226. For the optional DAC
   // build, retain the existing fail-safe when either sensor is unavailable.
