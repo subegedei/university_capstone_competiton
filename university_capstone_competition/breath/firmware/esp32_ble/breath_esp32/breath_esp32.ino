@@ -52,7 +52,7 @@ float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
 constexpr uint32_t MEASUREMENT_SETTLE_MS = 800, MEASUREMENT_CAPTURE_MS = 1600;
 constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
-struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
+struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES], sensorTime[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; bool sensorClockValid = true; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
 constexpr char MEASUREMENT_AXIS = 'Z';
 // Keep this function after project types so Arduino IDE's generated
 // declarations do not reference OutputState or Frame before their definition.
@@ -159,9 +159,16 @@ void readPower() {
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
 bool solve3x3(double a[3][4], double x[3]) { for (int k=0;k<3;++k) { int b=k; for(int r=k+1;r<3;++r) if(fabs(a[r][k])>fabs(a[b][k])) b=r; if(fabs(a[b][k])<1e-9) return false; for(int j=k;j<4;++j){double t=a[k][j];a[k][j]=a[b][j];a[b][j]=t;} double d=a[k][k]; for(int j=k;j<4;++j)a[k][j]/=d; for(int r=0;r<3;++r)if(r!=k){double q=a[r][k];for(int j=k;j<4;++j)a[r][j]-=q*a[k][j];}} for(int k=0;k<3;++k)x[k]=a[k][3]; return true; }
-void startMeasurement(float hz) { measurement = {}; measurement.state=MEASUREMENT_SETTLING; measurement.hz=hz; measurement.startedAt=millis(); measurement.quality="SETTLING"; Serial.printf("MEASURE: start %.1f Hz\n", hz); }
+void startMeasurement(float hz) { measurement.state=MEASUREMENT_SETTLING; measurement.hz=hz; measurement.startedAt=millis(); measurement.count=0; measurement.sensorClockValid=true; measurement.rms=NAN; measurement.r2=NAN; measurement.rate=NAN; measurement.quality="SETTLING"; Serial.printf("MEASURE: start %.1f Hz\n", hz); }
+void prepareMeasurementTimes() {
+  // Prefer the sensor's acquisition time, which is unaffected by host-side
+  // I2C/BLE scheduling. Fall back to one consistent ESP32 clock for the whole
+  // capture if any sensor timestamp is missing or non-monotonic.
+  if (measurement.sensorClockValid && measurement.count > 1)
+    for (size_t i = 0; i < measurement.count; ++i) measurement.time[i] = measurement.sensorTime[i];
+}
 void finishMeasurement() { if(measurement.count<64){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.rate=sampleCount*1000.0/max(1UL,millis()-windowStart);measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} uint64_t t0=measurement.time[0],t1=measurement.time[measurement.count-1]; if(t1<=t0){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} double seconds=(t1-t0)*1e-6, n[3][3]={{0}},rhs[3]={0},mean=0,total=0; measurement.rate=(measurement.count-1)/seconds; for(size_t i=0;i<measurement.count;++i){double t=(measurement.time[i]-t0)*1e-6,y=measurement.value[i],angle=TWO_PI*measurement.hz*t,v[3]={1,cos(angle),sin(angle)};mean+=y;total+=y*y;for(int r=0;r<3;++r){rhs[r]+=v[r]*y;for(int c=0;c<3;++c)n[r][c]+=v[r]*v[c];}} mean/=measurement.count;double a[3][4],b[3];for(int r=0;r<3;++r){for(int c=0;c<3;++c)a[r][c]=n[r][c];a[r][3]=rhs[r];}if(!solve3x3(a,b)){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;}double sst=total-measurement.count*mean*mean,sse=total-(b[0]*rhs[0]+b[1]*rhs[1]+b[2]*rhs[2]);measurement.r2=sst>1e-12?1-fmax(0.0,sse)/sst:NAN;measurement.rms=sqrt(b[1]*b[1]+b[2]*b[2])/sqrt(2.0);measurement.state=MEASUREMENT_COMPLETE;if(measurement.rate<5*measurement.hz)measurement.quality="LOW_SAMPLE_RATE";else if(!isfinite(measurement.r2)||measurement.r2<.60)measurement.quality="LOW_FIT_R2";else measurement.quality="MEASURE_OK"; }
-void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";Serial.println("MEASURE: capturing");}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS){finishMeasurement();Serial.printf("MEASURE: %s samples=%u rate=%.1f r2=%.3f rms=%.6f\n",measurement.quality,(unsigned)measurement.count,measurement.rate,measurement.r2,measurement.rms);} }
+void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";Serial.println("MEASURE: capturing");}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS){prepareMeasurementTimes();finishMeasurement();if (strcmp(measurement.quality,"MEASURE_OK") != 0) measurement.state=MEASUREMENT_INVALID;Serial.printf("MEASURE: %s samples=%u rate=%.1f r2=%.3f rms=%.6f\n",measurement.quality,(unsigned)measurement.count,measurement.rate,measurement.r2,measurement.rms);} }
 uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
@@ -189,11 +196,14 @@ void resetBnoAndI2C() {
   Wire.setTimeOut(20);
 }
 void retrySensors() {
+  // Address probing may block the shared bus and create gaps in a 1.6 s fit.
+  if (measurement.state == MEASUREMENT_CAPTURING || measurement.state == MEASUREMENT_SETTLING) return;
   if (imuFound && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
     stopOutput();
     Serial.println("BNO085: no data for 5 seconds; restarting sensor session");
     imuFound = false; imuReady = false; lastImu = 0;
     sh2_close();
+    resetBnoAndI2C();
   }
   if (!imuFound) {
     const uint8_t bnoCandidates[] = { BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE };
@@ -338,10 +348,12 @@ void setup() {
   rxQueue = xQueueCreate(4, sizeof(Frame)); txQueue = xQueueCreate(4, sizeof(Frame));
   if (!rxQueue || !txQueue) abort();
   if (OUTPUT_ENABLED) { dac_output_enable(DAC_CHANNEL_1); dac_output_voltage(DAC_CHANNEL_1, 128); }
-  esp_timer_create_args_t args{}; args.callback = waveTick; args.name = "wave-lease";
-  esp_timer_handle_t timer;
-  ESP_ERROR_CHECK(esp_timer_create(&args, &timer));
-  ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 1000));
+  if (OUTPUT_ENABLED) {
+    esp_timer_create_args_t args{}; args.callback = waveTick; args.name = "wave-lease";
+    esp_timer_handle_t timer;
+    ESP_ERROR_CHECK(esp_timer_create(&args, &timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 1000));
+  }
   bootId = String((uint32_t)esp_random(), HEX);
   BLEDevice::init("Breath-ESP32");
   auto server = BLEDevice::createServer(); server->setCallbacks(new ServerCallbacks());
@@ -386,6 +398,9 @@ void loop() {
   if (imuFound) {
     if (bno.wasReset()) {
       stopOutput(); lastImu = 0; imuInitAt = millis(); resetWindow();
+      if (measurement.state == MEASUREMENT_SETTLING || measurement.state == MEASUREMENT_CAPTURING) {
+        measurement.state = MEASUREMENT_INVALID; measurement.quality = "BNO085_RESET";
+      }
       if (!bno.enableReport(SH2_LINEAR_ACCELERATION, 4000)) {
         Serial.println("BNO085: report setup after reset failed; retrying");
         imuFound = false; imuReady = false; sh2_close();
@@ -398,9 +413,10 @@ void loop() {
         sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
         sampleCount++; lastImu = millis(); imuReady = true;
         if (measurement.state == MEASUREMENT_CAPTURING && measurement.count < MEASUREMENT_MAX_SAMPLES) {
-          // BNO08x timestamp can be zero or non-monotonic on some I2C/core
-          // combinations. The ESP32 monotonic timer is sufficient for the
-          // local sinusoid fit and remains valid across this capture window.
+          const uint64_t sensorTime = event.timestamp;
+          if (!sensorTime || (measurement.count && (sensorTime <= measurement.sensorTime[measurement.count - 1] ||
+              sensorTime - measurement.sensorTime[measurement.count - 1] > 50000))) measurement.sensorClockValid = false;
+          measurement.sensorTime[measurement.count] = sensorTime;
           measurement.time[measurement.count] = esp_timer_get_time();
           measurement.value[measurement.count++] = MEASUREMENT_AXIS == 'X' ? ax : MEASUREMENT_AXIS == 'Y' ? ay : az;
         }

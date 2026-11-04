@@ -17,8 +17,8 @@ const sweepFrequencies = Array.from(
   { length: MAX_STIMULATION_FREQUENCY_HZ - MIN_STIMULATION_FREQUENCY_HZ + 1 },
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
-const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
-// Six coarse points plus up to four new fine points need time for the physical
+const coarseSweepFrequencies = [25, 27, 29, 31, 33, 35, 37, 39, 40];
+// Nine coarse points plus up to two new fine points need time for the physical
 // actuator to settle, the 1.6-second firmware capture, and a fragmented BLE
 // telemetry frame.  Keep room for a retry when one result frame is late.
 const SWEEP_DURATION_SECONDS = 90;
@@ -99,7 +99,7 @@ export class MeasurementSession {
     this.patch({ telemetry: data });
     if (data.status === "error") { void this.stop(data.error || "ESP32 센서 오류로 정지했습니다."); return; }
     const collector = this.collect;
-    if (collector && performance.now() >= collector.after && data.imu.measurement.state === "complete" &&
+    if (collector && performance.now() >= collector.after && (data.imu.measurement.state === "complete" || data.imu.measurement.state === "invalid") &&
       data.imu.measurement.frequencyHz === collector.hz) {
       const measurement = data.imu.measurement;
       if (measurement.quality === "MEASURE_OK" && measurement.fundamentalAccelerationRms !== null &&
@@ -221,7 +221,7 @@ export class MeasurementSession {
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
       this.sessionId = crypto.randomUUID();
-      this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
+      this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 약 2 Hz 간격으로 탐색합니다." });
       const samples: SweepSample[] = [];
       const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
       // This is a maximum wait, not a delay applied to every point. Advance
