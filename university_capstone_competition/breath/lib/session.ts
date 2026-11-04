@@ -18,9 +18,13 @@ const sweepFrequencies = Array.from(
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
 const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
-// Six coarse points plus up to four new fine points each need an 0.8-second
-// settle period and a 1.6-second fundamental capture. Leave margin for BLE.
-const SWEEP_DURATION_SECONDS = 65;
+// Six coarse points plus up to four new fine points need time for the physical
+// actuator to settle, the 1.6-second firmware capture, and a fragmented BLE
+// telemetry frame.  Keep room for a retry when one result frame is late.
+const SWEEP_DURATION_SECONDS = 90;
+const DEVICE_SETTLING_MS = 1500;
+const DEVICE_RESULT_WAIT_MS = 3200;
+const MAX_MEASUREMENT_ATTEMPTS = 2;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -209,47 +213,56 @@ export class MeasurementSession {
       this.sessionId = crypto.randomUUID();
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
       const samples: SweepSample[] = [];
-      const settlingMs = mode === "demo" ? 200 : 800;
-      // Device telemetry arrives once per second to avoid BLE fragment loss.
-      // Wait long enough to receive the completed 1.6-second fit result.
-      const measuringMs = mode === "demo" ? 450 : 2600;
+      const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
+      // Device telemetry arrives once per second and is fragmented into ATT
+      // notifications.  The old 2.6-second wait had almost no margin after
+      // the device's 0.8 + 1.6-second measurement cycle, so a valid final
+      // frame could arrive just after the collector was cleared.
+      const measuringMs = mode === "demo" ? 450 : DEVICE_RESULT_WAIT_MS;
       const measure = async (frequencies: number[]) => {
         for (const hz of frequencies) {
-        if (signal.aborted) return;
-        if (samples.length) {
-          this.settings = { ...sweepSettings, frequencyHz: hz };
-          if (mode === "device") this.audio.update(hz, settings.intensityPercent);
-        }
-        if (mode === "device") await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
-        if (signal.aborted) return;
-        this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
-        const collector = { hz, after: performance.now() + settlingMs, windows: [] as Telemetry[] };
-        this.collect = collector;
-        await delay(settlingMs + measuringMs, signal);
-        this.collect = undefined;
-        if (!collector.windows.length) {
-          const measurement = this.view.telemetry?.imu.measurement;
-          if (measurement?.frequencyHz === hz && measurement.state === "invalid") {
-            const r2 = measurement.fitR2 === null ? "—" : measurement.fitR2.toFixed(3);
-            throw new Error(hz + " Hz 기본파 측정 실패: " + (measurement.quality ?? "UNKNOWN") + " (R²=" + r2 + ", " + measurement.sampleRateHz.toFixed(1) + " Hz)");
+          if (signal.aborted) return;
+          if (samples.length) {
+            this.settings = { ...sweepSettings, frequencyHz: hz };
+            if (mode === "device") this.audio.update(hz, settings.intensityPercent);
           }
-          throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. BNO085 축·샘플링률·접촉 상태를 확인하세요.");
-        }
-        const frame = collector.windows.at(-1)!;
-        const fundamental = frame.imu.measurement;
-        const meanPower = (key: "busVoltageV" | "currentA" | "powerW") => {
-          const values = collector.windows.filter((frame) => frame.power.ready && (key === "busVoltageV" || frame.power.calibrated))
-            .map((frame) => frame.power[key]).filter((value): value is number => value !== null);
-          return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-        };
-        samples.push({
-          hz,
-          accelerationRms: fundamental.fundamentalAccelerationRms!,
-          windowCount: collector.windows.length, sampleCount: fundamental.sampleCount,
-          sampleRateHz: fundamental.sampleRateHz,
-          busVoltageV: meanPower("busVoltageV"), currentA: meanPower("currentA"), powerW: meanPower("powerW"),
-        });
-        this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / 11) });
+          this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
+          let collector: { hz: number; after: number; windows: Telemetry[] } | undefined;
+          for (let attempt = 1; attempt <= MAX_MEASUREMENT_ATTEMPTS; attempt++) {
+            if (mode === "device") await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
+            if (signal.aborted) return;
+            collector = { hz, after: performance.now() + settlingMs, windows: [] };
+            this.collect = collector;
+            await delay(settlingMs + measuringMs, signal);
+            this.collect = undefined;
+            if (collector.windows.length) break;
+            if (attempt < MAX_MEASUREMENT_ATTEMPTS) {
+              this.patch({ message: hz + " Hz 측정값이 늦어 재시도합니다 (" + (attempt + 1) + "/" + MAX_MEASUREMENT_ATTEMPTS + ")." });
+            }
+          }
+          if (!collector?.windows.length) {
+            const measurement = this.view.telemetry?.imu.measurement;
+            if (measurement?.frequencyHz === hz && measurement.state === "invalid") {
+              const r2 = measurement.fitR2 === null ? "—" : measurement.fitR2.toFixed(3);
+              throw new Error(hz + " Hz 기본파 측정 실패: " + (measurement.quality ?? "UNKNOWN") + " (R²=" + r2 + ", " + measurement.sampleRateHz.toFixed(1) + " Hz)");
+            }
+            throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. 재시도 후에도 수신되지 않았습니다.");
+          }
+          const frame = collector.windows.at(-1)!;
+          const fundamental = frame.imu.measurement;
+          const meanPower = (key: "busVoltageV" | "currentA" | "powerW") => {
+            const values = collector.windows.filter((frame) => frame.power.ready && (key === "busVoltageV" || frame.power.calibrated))
+              .map((frame) => frame.power[key]).filter((value): value is number => value !== null);
+            return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+          };
+          samples.push({
+            hz,
+            accelerationRms: fundamental.fundamentalAccelerationRms!,
+            windowCount: collector.windows.length, sampleCount: fundamental.sampleCount,
+            sampleRateHz: fundamental.sampleRateHz,
+            busVoltageV: meanPower("busVoltageV"), currentA: meanPower("currentA"), powerW: meanPower("powerW"),
+          });
+          this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / 11) });
         }
       };
       await measure(coarseSweepFrequencies);
