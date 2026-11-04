@@ -94,7 +94,7 @@ export default function Dashboard() {
       <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">SYSTEM READY</p><h2 id="connection-heading">장치 연결 상태</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
       <div className="header-actions">
         {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />ESP32 연결 해제</button>
-          : <button className="connection" disabled={locked} onClick={() => void session.current?.connect(true)}>ESP32 연결</button>}
+          : <button className="connection" disabled={locked} onClick={() => void session.current?.connect()}>ESP32 연결</button>}
       </div>
       <p className="helper">자동으로 웹 블루투스로 ESP32와 연결됩니다.</p>
       <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button></div>
