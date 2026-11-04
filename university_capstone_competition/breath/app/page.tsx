@@ -174,7 +174,7 @@ export default function Dashboard() {
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
         <button className="start" disabled={!connected || !connectionConfirmed || locked || intensity === 0} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.sweeping && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
       {view.sweeping && telemetry && !telemetry.power.ready && <p className="warning">센서 응답이 없습니다. 스윕은 임의 데이터를 사용합니다.</p>}
-      <p className="helper">먼저 25–40 Hz를 약 2 Hz 간격으로 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
+      <p className="helper">25–40 Hz 전체를 3 Hz 간격으로 탐색한 뒤, 피크 주변을 1 Hz 간격으로 재탐색합니다. 약 12초 내에 완료됩니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />
       {view.samples.length > 0 ? <>

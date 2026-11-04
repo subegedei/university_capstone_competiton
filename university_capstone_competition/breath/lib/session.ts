@@ -1,6 +1,6 @@
 import { createDemoSweepSamples, DemoClient } from "./ble/demo";
 import { ControlCommand, DeviceClient, DeviceInfo, MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
-import { SweepResult, SweepSample, analyseSweep } from "./analysis";
+import { SweepResult, SweepSample, analyseSweep, refinementCenterIndex } from "./analysis";
 import { StimulationArea, TonePlayer } from "./audio/tone";
 
 export type SessionView = {
@@ -18,6 +18,8 @@ const sweepFrequencies = Array.from(
 );
 const MIN_SWEEP_SAMPLE_RATE_HZ = 200;
 const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
+const SWEEP_STEP_MS = 1400;
+const COARSE_SWEEP_HZ = [25, 28, 31, 34, 37, 40];
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -233,22 +235,36 @@ export class MeasurementSession {
     try {
       this.settings = settings; this.area = area;
       const demo = createDemoSweepSamples(settings.intensityPercent);
-      const ordered = [...demo.samples].sort((left, right) => left.hz - right.hz);
-      const peakResponse = Math.max(...ordered.map((sample) => sample.accelerationRms));
+      const samplesByHz = new Map(demo.samples.map((sample) => [sample.hz, sample]));
+      const coarseSamples = COARSE_SWEEP_HZ.map((hz) => samplesByHz.get(hz)!).filter(Boolean);
+      const peakResponse = Math.max(...demo.samples.map((sample) => sample.accelerationRms));
       const outputLevel = (sample: SweepSample) => settings.intensityPercent * (0.3 + 0.7 * sample.accelerationRms / peakResponse);
       const samples: SweepSample[] = [];
       await this.audio.prepare();
       if (signal.aborted) return;
-      this.audio.start(ordered[0].hz, outputLevel(ordered[0]), 30, area);
+      this.audio.start(coarseSamples[0].hz, outputLevel(coarseSamples[0]), 30, area);
       this.patch({ playing: true, message: "앰프에서 주파수 스윕을 재생하고 있습니다." });
-      for (const [index, sample] of ordered.entries()) {
-        if (index > 0) this.audio.update(sample.hz, outputLevel(sample));
-        await delay(650, signal);
+      const playFrequency = async (sample: SweepSample, index: number, total: number, phase: string) => {
+        if (signal.aborted) return;
+        if (samples.length) this.audio.update(sample.hz, outputLevel(sample));
+        this.patch({ sweepHz: sample.hz, message: `${phase} · ${sample.hz} Hz` });
+        await delay(SWEEP_STEP_MS, signal);
         if (signal.aborted) return;
         samples.push(sample);
-        this.patch({ sweepHz: sample.hz, samples: [...samples], progress: (index + 1) / ordered.length,
-          message: `앰프 출력 · ${sample.hz} Hz` });
+        this.patch({ samples: [...samples], progress: (index + 1) / total });
+      };
+      for (const [index, sample] of coarseSamples.entries()) {
+        await playFrequency(sample, index, COARSE_SWEEP_HZ.length + 2, "전체 구간 탐색");
+        if (signal.aborted) return;
       }
+      const peakHz = coarseSamples[refinementCenterIndex(coarseSamples)].hz;
+      const fineSamples = [peakHz - 1, peakHz + 1].map((hz) => samplesByHz.get(hz)!).filter(Boolean);
+      this.patch({ message: `${peakHz} Hz 피크 주변을 1 Hz 간격으로 재탐색합니다.` });
+      for (const [index, sample] of fineSamples.entries()) {
+        await playFrequency(sample, COARSE_SWEEP_HZ.length + index, COARSE_SWEEP_HZ.length + fineSamples.length, "피크 재탐색");
+        if (signal.aborted) return;
+      }
+      samples.sort((left, right) => left.hz - right.hz);
       this.audio.stop();
       this.patch({ playing: false, message: "스윕 응답 데이터를 분석합니다." });
       const result = await analyseSweep(samples, signal);
