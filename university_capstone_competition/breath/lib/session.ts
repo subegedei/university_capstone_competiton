@@ -17,6 +17,7 @@ const sweepFrequencies = Array.from(
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
 const MIN_SWEEP_SAMPLE_RATE_HZ = 200;
+const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
