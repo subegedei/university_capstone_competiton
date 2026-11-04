@@ -1,6 +1,6 @@
 import { createDemoSweepSamples, DemoClient } from "./ble/demo";
 import { ControlCommand, DeviceClient, DeviceInfo, MAX_STIMULATION_FREQUENCY_HZ, MIN_STIMULATION_FREQUENCY_HZ, Settings, Telemetry, makeControlCommand } from "./ble/protocol";
-import { SweepResult, SweepSample, analyseSweep, refinementCenterIndex } from "./analysis";
+import { SweepResult, SweepSample, analyseSweep, refinementCenterIndex, responseScore } from "./analysis";
 import { StimulationArea, TonePlayer } from "./audio/tone";
 
 export type SessionView = {
@@ -237,8 +237,8 @@ export class MeasurementSession {
       const demo = createDemoSweepSamples(settings.intensityPercent);
       const samplesByHz = new Map(demo.samples.map((sample) => [sample.hz, sample]));
       const coarseSamples = COARSE_SWEEP_HZ.map((hz) => samplesByHz.get(hz)!).filter(Boolean);
-      const peakResponse = Math.max(...demo.samples.map((sample) => sample.accelerationRms));
-      const outputLevel = (sample: SweepSample) => settings.intensityPercent * (0.3 + 0.7 * sample.accelerationRms / peakResponse);
+      const peakResponse = Math.max(...demo.samples.map(responseScore));
+      const outputLevel = (sample: SweepSample) => settings.intensityPercent * (0.3 + 0.7 * responseScore(sample) / peakResponse);
       const samples: SweepSample[] = [];
       await this.audio.prepare();
       if (signal.aborted) return;
