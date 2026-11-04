@@ -229,24 +229,35 @@ export class MeasurementSession {
     this.cancel = new AbortController();
     const signal = this.cancel.signal;
     this.patch({ busy: true, sweeping: true, result: null, resultMode: "demo", samples: [], progress: 0,
-      message: "스윕 데이터를 생성합니다." });
+      message: "스윕 데이터를 생성하고 앰프를 구동합니다." });
     try {
       this.settings = settings; this.area = area;
       const demo = createDemoSweepSamples(settings.intensityPercent);
       const ordered = [...demo.samples].sort((left, right) => left.hz - right.hz);
+      const peakResponse = Math.max(...ordered.map((sample) => sample.accelerationRms));
+      const outputLevel = (sample: SweepSample) => settings.intensityPercent * (0.3 + 0.7 * sample.accelerationRms / peakResponse);
       const samples: SweepSample[] = [];
+      await this.audio.prepare();
+      if (signal.aborted) return;
+      this.audio.start(ordered[0].hz, outputLevel(ordered[0]), 30, area);
+      this.patch({ playing: true, message: "앰프에서 주파수 스윕을 재생하고 있습니다." });
       for (const [index, sample] of ordered.entries()) {
-        await delay(160, signal);
+        if (index > 0) this.audio.update(sample.hz, outputLevel(sample));
+        await delay(650, signal);
         if (signal.aborted) return;
         samples.push(sample);
         this.patch({ sweepHz: sample.hz, samples: [...samples], progress: (index + 1) / ordered.length,
-          message: `스윕 측정 중 · ${sample.hz} Hz` });
+          message: `앰프 출력 · ${sample.hz} Hz` });
       }
+      this.audio.stop();
+      this.patch({ playing: false, message: "스윕 응답 데이터를 분석합니다." });
       const result = await analyseSweep(samples, signal);
       if (!signal.aborted) this.patch({ result, resultMode: "demo", message: "스윕 측정이 완료되었습니다." });
     } catch (error) {
+      this.audio.stop();
       if (!signal.aborted) this.patch({ message: this.error(error) });
     } finally {
+      this.audio.stop();
       this.patch({ playing: false, sweeping: false, busy: false, sweepHz: null });
     }
   }
