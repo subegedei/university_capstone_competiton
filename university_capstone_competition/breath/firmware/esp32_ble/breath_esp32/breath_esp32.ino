@@ -227,9 +227,13 @@ void finishMeasurement() {
   }
   measurement.mean = mean;
   measurement.rawAcRms = sqrt(totalSquares / measurement.count);
-  if (!fitAtFrequency(measurement.hz, measurement.r2, measurement.rms, measurement.residualRms)) {
+  double targetR2, targetRms, targetResidualRms;
+  if (!fitAtFrequency(measurement.hz, targetR2, targetRms, targetResidualRms)) {
     measurement.state = MEASUREMENT_COMPLETE; measurement.quality = "INVALID_FIT"; return;
   }
+  measurement.r2 = targetR2;
+  measurement.rms = targetRms;
+  measurement.residualRms = targetResidualRms;
 
   // Diagnostic only: search nearby frequencies to reveal drive-frequency
   // mismatch. This estimate never replaces the commanded-frequency fit.
