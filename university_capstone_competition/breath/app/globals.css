@@ -300,3 +300,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
   .screen-shell-home .actions small { display: none; }
 }
 
+.peak-kicker { display: flex; align-items: center; gap: 8px; }
+.peak-kicker .eyebrow { margin: 0; }
+.peak-kicker .demo-source { padding: 3px 7px; border: 1px solid rgba(255,255,255,.24); border-radius: 999px; background: rgba(255,255,255,.12); color: #fff; font-size: 10px; }
+
