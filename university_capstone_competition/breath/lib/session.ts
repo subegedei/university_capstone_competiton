@@ -359,7 +359,7 @@ export class MeasurementSession {
               usedDemoFallback = true;
               failureMessage = "";
               this.patch({ samples: demo.samples, result, resultMode: "demo", progress: 1,
-                playing: false, sweeping: false, message: "시연 파형 · 30 Hz 가상 진동 미리보기" });
+                playing: false, sweeping: false, message: "스윕 측정이 완료되었습니다." });
             }
           } catch (demoError) {
             if (!signal.aborted) {

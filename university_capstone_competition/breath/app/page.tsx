@@ -92,7 +92,7 @@ export default function Dashboard() {
   return <main className={`shell screen-shell-${screen}`} id="home">
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">🫁</span><div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡</h1><p className="subtitle">진동 제어 · 실시간 센서 모니터링</p></div></div>
-      <span className={"connection-indicator " + (connected ? "connected" : "")}><span className="dot" />{view.mode === "demo" ? "시연" : connected ? "ESP32 연결됨" : "연결 대기"}</span>
+      <span className={"connection-indicator " + (connected ? "connected" : "")}><span className="dot" />{connected ? "ESP32 연결됨" : "연결 대기"}</span>
       <nav className="section-nav" aria-label="주 메뉴">
         {([ ["home", "home", "홈 · 제어"], ["analysis", "chart", "측정 · 분석"], ["memory", "memory", "메모리"], ["settings", "connection", "설정"] ] as const).map(([id, icon, label]) => <button key={id} type="button" className={screen === id ? "active" : ""} aria-current={screen === id ? "page" : undefined} onClick={() => setScreen(id)}><UiIcon kind={icon} /><span>{label}</span></button>)}
       </nav>
@@ -102,9 +102,8 @@ export default function Dashboard() {
       <div className="panel-title"><div className="heading-with-icon"><span className="icon-tile"><UiIcon kind="connection" /></span><div><p className="eyebrow">SYSTEM READY</p><h2 id="connection-heading">장치 연결 상태</h2></div></div><span className={outputConfirmed ? "tag good" : "tag"}>{outputConfirmed ? "출력 준비됨" : "출력 선택 필요"}</span></div>
       {!bleSupported && <p className="warning">웹 Bluetooth를 지원하는 HTTPS 환경의 Android Chrome 또는 컴퓨터 Chrome/Edge를 사용하세요.</p>}
       <div className="header-actions">
-        {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />{view.mode === "demo" ? "시연 연결 해제" : "ESP32 연결 해제"}</button>
-          : <><button className="connection" disabled={locked} onClick={() => void session.current?.connect(false)}>ESP32 연결</button>
-            <button className="secondary" disabled={locked} onClick={() => void session.current?.connect(true)}>시연 연결</button></>}
+        {connected ? <button className="connection connected" disabled={view.busy && !view.playing} onClick={() => void session.current?.disconnect()}><span className="dot" />ESP32 연결 해제</button>
+          : <button className="connection" disabled={locked} onClick={() => void session.current?.connect(false)}>ESP32 연결</button>}
       </div>
       <p className="helper">ESP32는 센서값을 전송하고, 노트북 오디오 출력은 ZK-502C로 전달됩니다.</p>
       <div className="output-row"><span>{outputLabel}</span><button className="secondary" disabled={locked} onClick={() => void selectOutput()}>오디오 출력 선택</button></div>
@@ -118,9 +117,9 @@ export default function Dashboard() {
     </section>
 
     <section className="hero-card" hidden={screen !== "analysis"}>
-      <div><div className="peak-kicker"><p className="eyebrow">{view.resultMode === "demo" ? "RESPONSE PEAK" : view.result?.peakKind === "boundary" ? "RANGE MAX RESPONSE" : "MEASURED RESPONSE PEAK"}</p>{view.resultMode === "demo" && <span className="tag demo-source">시연 · 실측 구간 포함</span>}</div><h2>{view.result?.peakKind === "boundary" ? "측정 범위 내 최대 응답 주파수" : "측정 응답 피크 주파수"}</h2>
+      <div><div className="peak-kicker"><p className="eyebrow">{view.result?.peakKind === "boundary" ? "RANGE MAX RESPONSE" : "MEASURED RESPONSE PEAK"}</p></div><h2>{view.result?.peakKind === "boundary" ? "측정 범위 내 최대 응답 주파수" : "측정 응답 피크 주파수"}</h2>
         <strong>{view.result?.estimatedResonanceHz ?? "—"}{view.result?.estimatedResonanceHz !== null && <small> Hz</small>}</strong><p className="hero-note">{view.result ? (view.result.peakKind === "boundary" ? "측정 범위 끝점에서 최대 응답이 관찰되었습니다." : "주파수별 진동 응답 분석 결과") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
-      <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.resultMode === "demo" ? "시연 파형 · 30 Hz 가상 미리보기" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
+      <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? "Bluetooth 진동음 재생 중" : "대기"}</span>
         <p aria-live="polite">{view.message}</p><small>{buildLabel}</small></div>
     </section>
     <p className="mobile-message" aria-live="polite">{view.message}</p>
@@ -152,7 +151,7 @@ export default function Dashboard() {
       </article>
 
       <aside className="side-stack" id="sensors" aria-label="스윕 중 센서 상태" hidden={screen !== "analysis" || !view.sweeping}>
-        <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{view.mode === "demo" ? "시연" : connected ? "BLE" : "OFFLINE"}</span></div>
+        <article className="panel live"><div className="panel-title"><h2>실시간 상태</h2><span className="tag">{connected ? "BLE" : "OFFLINE"}</span></div>
           <Metric label="설정된 출력 주파수" text={view.playing ? value(frequency, "Hz", 0) : "—"} />
           <Metric label="설정된 출력 레벨" text={view.playing ? value(intensity, "%", 0) : "—"} />
           <Metric label="남은 시간" text={view.playing && !view.sweeping && remaining !== null ? time(remaining) : "--:--"} />
