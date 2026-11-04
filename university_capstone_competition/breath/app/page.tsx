@@ -118,9 +118,9 @@ export default function Dashboard() {
     </section>
 
     <section className="hero-card" hidden={screen !== "analysis"}>
-      <div><div className="peak-kicker"><p className="eyebrow">{view.resultMode === "demo" ? "RESPONSE PEAK" : view.result?.peakKind === "boundary" ? "RANGE MAX RESPONSE" : "MEASURED RESPONSE PEAK"}</p>{view.resultMode === "demo" && <span className="tag demo-source">시연</span>}</div><h2>{view.result?.peakKind === "boundary" ? "측정 범위 내 최대 응답 주파수" : "측정 응답 피크 주파수"}</h2>
+      <div><div className="peak-kicker"><p className="eyebrow">{view.resultMode === "demo" ? "RESPONSE PEAK" : view.result?.peakKind === "boundary" ? "RANGE MAX RESPONSE" : "MEASURED RESPONSE PEAK"}</p>{view.resultMode === "demo" && <span className="tag demo-source">시연 · 실측 구간 포함</span>}</div><h2>{view.result?.peakKind === "boundary" ? "측정 범위 내 최대 응답 주파수" : "측정 응답 피크 주파수"}</h2>
         <strong>{view.result?.estimatedResonanceHz ?? "—"}{view.result?.estimatedResonanceHz !== null && <small> Hz</small>}</strong><p className="hero-note">{view.result ? (view.result.peakKind === "boundary" ? "측정 범위 끝점에서 최대 응답이 관찰되었습니다." : "주파수별 진동 응답 분석 결과") : "스윕 측정을 완료하면 표시됩니다."}</p></div>
-      <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
+      <div className="status"><span className={"badge " + (view.playing ? "running" : telemetry?.status === "error" ? "error" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.resultMode === "demo" ? "시연 파형 · 30 Hz 가상 미리보기" : view.playing ? (view.mode === "demo" ? "가상 진동 중" : "Bluetooth 진동음 재생 중") : "대기"}</span>
         <p aria-live="polite">{view.message}</p><small>{buildLabel}</small></div>
     </section>
     <p className="mobile-message" aria-live="polite">{view.message}</p>

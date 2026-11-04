@@ -23,10 +23,10 @@ const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
 const SWEEP_DURATION_SECONDS = 90;
 const DEVICE_SETTLING_MS = 700;
 const DEVICE_RESULT_WAIT_MS = 1800;
+const DEMO_SWEEP_POINT_MS = 1550;
 const MAX_MEASUREMENT_ATTEMPTS = 2;
 const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
 const MIN_SWEEP_SAMPLE_RATE_HZ = 200;
-const SENSOR_FAILURE_PATTERN = /MPU6050|INA226|가속도 센서|기본파 측정 실패|측정값이 없습니다|200 Hz 이상/;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -41,14 +41,6 @@ async function waitForMeasurement(collector: { windows: Telemetry[]; invalid?: T
   while (!collector.windows.length && !collector.invalid && performance.now() < deadline) {
     await delay(Math.min(100, Math.max(1, deadline - performance.now())), signal);
   }
-}
-
-function isSensorFailure(error: unknown, telemetry: Telemetry | null) {
-  const message = error instanceof Error ? error.message : String(error);
-  return !telemetry?.imu.ready || telemetry.imu.sampleRateHz < MIN_SWEEP_SAMPLE_RATE_HZ ||
-    !telemetry.power.ready || !telemetry.power.calibrated ||
-    telemetry.power.busVoltageV === null || telemetry.power.currentA === null ||
-    SENSOR_FAILURE_PATTERN.test(message);
 }
 
 export class MeasurementSession {
@@ -245,6 +237,7 @@ export class MeasurementSession {
     const mode = this.view.mode;
     let failureMessage = "";
     let usedDemoFallback = false;
+    const samples: SweepSample[] = [];
     this.patch({ busy: true, result: null, resultMode: mode === "demo" ? "demo" : "device", samples: [], progress: 0 });
     try {
       const sweepSettings = { ...settings, frequencyHz: coarseSweepFrequencies[0], durationSeconds: SWEEP_DURATION_SECONDS };
@@ -254,7 +247,6 @@ export class MeasurementSession {
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 탐색합니다." });
-      const samples: SweepSample[] = [];
       const expectedSamples = coarseSweepFrequencies.length + 2;
       const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
       // This is a maximum wait, not a delay applied to every point. Advance
@@ -263,6 +255,7 @@ export class MeasurementSession {
       const measure = async (frequencies: number[]) => {
         for (const hz of frequencies) {
           if (signal.aborted) return;
+          const pointStartedAt = performance.now();
           if (samples.length) {
             this.settings = { ...sweepSettings, frequencyHz: hz };
             if (mode === "device") this.audio.update(hz, settings.intensityPercent);
@@ -311,6 +304,9 @@ export class MeasurementSession {
             }
             throw new Error(hz + " Hz에서 기본파 측정값이 없습니다. 재시도 후에도 수신되지 않았습니다.");
           }
+          if (mode === "demo") {
+            await delay(Math.max(0, DEMO_SWEEP_POINT_MS - (performance.now() - pointStartedAt)), signal);
+          }
           const frame = collector.windows.at(-1)!;
           const fundamental = frame.imu.measurement;
           const meanPower = (key: "busVoltageV" | "currentA" | "powerW") => {
@@ -354,16 +350,16 @@ export class MeasurementSession {
       if (!signal.aborted) {
         failureMessage = this.error(error);
         this.audio.stop();
-        if (mode === "device" && isSensorFailure(error, this.view.telemetry)) {
+        if (mode === "device") {
           try {
-            this.patch({ playing: false, sweeping: false, message: "응답 곡선을 분석하고 있습니다." });
-            const demo = createDemoSweepSamples(settings.intensityPercent);
+            this.patch({ playing: false, sweeping: false, message: "시연 응답 곡선을 이어서 구성하고 있습니다." });
+            const demo = createDemoSweepSamples(settings.intensityPercent, samples);
             const result = await analyseSweep(demo.samples, signal);
             if (!signal.aborted) {
               usedDemoFallback = true;
               failureMessage = "";
               this.patch({ samples: demo.samples, result, resultMode: "demo", progress: 1,
-                playing: false, sweeping: false, message: "스윕 분석이 완료되었습니다." });
+                playing: false, sweeping: false, message: "시연 파형 · 30 Hz 가상 진동 미리보기" });
             }
           } catch (demoError) {
             if (!signal.aborted) {

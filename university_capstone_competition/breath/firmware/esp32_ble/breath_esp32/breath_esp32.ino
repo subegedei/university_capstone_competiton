@@ -495,7 +495,8 @@ void setup() {
     SDA_PIN, SCL_PIN, MPU6050_ADDRESS_PRIMARY, MPU6050_ADDRESS_ALTERNATE, INA_ADDRESS_MIN, INA_ADDRESS_MAX);
   Serial.printf("MPU6050: waiting %lu ms for power-on stabilization\n", SENSOR_COLD_STARTUP_DELAY_MS);
   delay(SENSOR_COLD_STARTUP_DELAY_MS);
-  resetI2C();
+  // Wire was just initialized above; probe the devices on that live bus.
+  // Reserve resetI2C() for recovery after repeated address misses.
   retrySensors();
   lastSensorRetry = millis();
 }

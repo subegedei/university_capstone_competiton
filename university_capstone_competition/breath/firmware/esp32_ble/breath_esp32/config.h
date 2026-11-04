@@ -1,8 +1,8 @@
 #pragma once
 // ZK-502C receives audio over Bluetooth; GPIO25 DAC is not wired to its AUX input.
 constexpr bool OUTPUT_ENABLED = false;
-// Current wiring on the original ESP32: SDA -> GPIO32, SCL -> GPIO33.
-constexpr int SDA_PIN = 32, SCL_PIN = 33;
+// Existing wiring: SDA -> GPIO21, SCL -> GPIO22.
+constexpr int SDA_PIN = 21, SCL_PIN = 22;
 // MPU6050 uses I2C only. AD0 selects 0x68 (GND) or 0x69 (VCC); try both.
 constexpr uint8_t MPU6050_ADDRESS_PRIMARY = 0x68, MPU6050_ADDRESS_ALTERNATE = 0x69;
 // Final demonstration hardware includes the INA226 current monitor.

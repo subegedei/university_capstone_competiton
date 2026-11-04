@@ -2,13 +2,15 @@ import { ControlCommand, DeviceClient, DeviceInfo, Settings, Telemetry, encodeCo
 import type { SweepSample } from "../analysis";
 
 export function randomDemoPeakHz() {
-  return 32 + Math.floor(Math.random() * 3);
+  return 32 + Math.floor(Math.random() * 4);
 }
 
-export function createDemoSweepSamples(intensityPercent = 50): { peakHz: number; samples: SweepSample[] } {
+export function createDemoSweepSamples(intensityPercent = 50, measuredSamples: SweepSample[] = []): { peakHz: number; samples: SweepSample[] } {
   const peakHz = randomDemoPeakHz();
   const intensityScale = Math.max(0.35, intensityPercent / 50);
-  const samples = Array.from({ length: 16 }, (_, index) => {
+  const measuredByHz = new Map(measuredSamples.map((sample) => [sample.hz, sample]));
+  const anchors = [...measuredSamples].sort((a, b) => a.hz - b.hz);
+  const generated = Array.from({ length: 16 }, (_, index) => {
     const hz = 25 + index;
     const shape = Math.exp(-0.5 * (((hz - peakHz) / 2.2) ** 2));
     const ripple = 1 + 0.012 * Math.sin((hz - 25) * 1.17);
@@ -20,6 +22,27 @@ export function createDemoSweepSamples(intensityPercent = 50): { peakHz: number;
       hz, accelerationRms, busVoltageV, currentA, powerW: busVoltageV * currentA,
       windowCount: 1, sampleCount: 150, sampleRateHz: 250,
     };
+  });
+  const samples = generated.map((sample) => {
+    const measured = measuredByHz.get(sample.hz);
+    if (measured) return measured;
+
+    // Keep measured points fixed and smoothly carry their displacement offset
+    // into the generated portion so the plotted line joins without a jump.
+    const lower = [...anchors].reverse().find((anchor) => anchor.hz < sample.hz);
+    const upper = anchors.find((anchor) => anchor.hz > sample.hz);
+    const baseDisplacement = sample.accelerationRms / (2 * Math.PI * sample.hz) ** 2;
+    const correctionAt = (anchor: SweepSample) =>
+      anchor.accelerationRms / (2 * Math.PI * anchor.hz) ** 2 -
+      generated[anchor.hz - 25].accelerationRms / (2 * Math.PI * anchor.hz) ** 2;
+    let correction = 0;
+    if (lower && upper) {
+      const ratio = (sample.hz - lower.hz) / (upper.hz - lower.hz);
+      correction = correctionAt(lower) * (1 - ratio) + correctionAt(upper) * ratio;
+    } else if (lower) correction = correctionAt(lower);
+    else if (upper) correction = correctionAt(upper);
+    const displacement = Math.max(1e-9, baseDisplacement + correction);
+    return { ...sample, accelerationRms: displacement * (2 * Math.PI * sample.hz) ** 2 };
   });
   return { peakHz, samples };
 }
