@@ -5,7 +5,7 @@
     "audioSource": "esp32-dac",
     "sensors": {
       "imu": "MPU6050",
-      "power": "none"
+      "power": "INA226"
     },
     "outputMode": "common", "outputEnabled": true
   },

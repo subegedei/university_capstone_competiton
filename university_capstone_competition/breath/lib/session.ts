@@ -26,7 +26,7 @@ const DEVICE_SETTLING_MS = 1500;
 const DEVICE_RESULT_WAIT_MS = 3200;
 const MAX_MEASUREMENT_ATTEMPTS = 2;
 const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
-const MIN_SWEEP_SAMPLE_RATE_HZ = 120;
+const MIN_SWEEP_SAMPLE_RATE_HZ = 200;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -171,7 +171,7 @@ export class MeasurementSession {
       await delay(150, signal);
     }
     if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < MIN_SWEEP_SAMPLE_RATE_HZ) {
-      throw new Error("MPU6050 가속도 센서가 125 Hz 측정 준비를 완료하지 못했습니다.");
+      throw new Error("MPU6050 가속도 센서가 스윕 측정에 필요한 200 Hz 이상 샘플링을 확인하지 못했습니다.");
     }
   }
 

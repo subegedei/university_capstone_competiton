@@ -37,7 +37,7 @@ uint8_t mpuAddress = 0, inaAddress = 0;
 uint32_t lastSensorRetry = 0, imuInitAt = 0, lastMpuReadAt = 0;
 uint8_t mpuNoResponseCycles = 0;
 constexpr uint32_t SENSOR_RETRY_MS = 5000;
-constexpr uint32_t IMU_SAMPLE_INTERVAL_MS = 8; // 125 Hz: >3 samples/cycle at 40 Hz.
+constexpr uint32_t IMU_SAMPLE_INTERVAL_MS = 4; // 250 Hz: >6 samples/cycle at 40 Hz.
 // The IMU gets a shorter retry interval while it is offline; the healthy
 // INA226 continues being read once per telemetry window.
 constexpr uint32_t MPU_OFFLINE_RETRY_MS = 2000;
@@ -54,7 +54,7 @@ float ax = 0, ay = 0, az = 0, voltage = 0, current = 0;
 // "measure" command after it has changed the external audio frequency.
 constexpr uint32_t MEASUREMENT_SETTLE_MS = 800, MEASUREMENT_CAPTURE_MS = 1600;
 constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
-constexpr float MEASUREMENT_MIN_SAMPLES_PER_CYCLE = 3.0f;
+constexpr float MEASUREMENT_MIN_SAMPLES_PER_CYCLE = 5.0f;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
 struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES], sensorTime[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; bool sensorClockValid = true; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
 constexpr char MEASUREMENT_AXIS = 'Z';
@@ -199,16 +199,16 @@ bool readBytes(uint8_t address, uint8_t reg, uint8_t *buffer, size_t length) {
   return true;
 }
 bool configureMpu6050(uint8_t address) {
-  // Wake from sleep, select ±2 g (16384 LSB/g), DLPF 44 Hz and 125 Hz output.
+  // Wake from sleep; ±2 g, 184 Hz DLPF and 250 Hz output (1 kHz / (3 + 1)).
   if (!writeByte(address, 0x6B, 0x01)) return false;
   delay(20);
-  return writeByte(address, 0x1A, 0x03) && writeByte(address, 0x19, 0x07) && writeByte(address, 0x1C, 0x00);
+  return writeByte(address, 0x1A, 0x01) && writeByte(address, 0x19, 0x03) && writeByte(address, 0x1C, 0x00);
 }
 bool setImuReport(bool enabled) {
   if (!imuFound || !writeByte(mpuAddress, 0x6B, enabled ? 0x01 : 0x40)) return false;
   imuReportEnabled = enabled;
   if (!enabled) { imuReady = false; lastImu = 0; resetWindow(); }
-  Serial.printf("MPU6050: accelerometer %s\n", enabled ? "enabled at 125 Hz" : "sleeping");
+  Serial.printf("MPU6050: accelerometer %s\n", enabled ? "enabled at 250 Hz" : "sleeping");
   return true;
 }
 bool readMpuAcceleration(float &x, float &y, float &z) {

@@ -5,8 +5,8 @@ constexpr bool OUTPUT_ENABLED = false;
 constexpr int SDA_PIN = 21, SCL_PIN = 22;
 // MPU6050 uses I2C only. AD0 selects 0x68 (GND) or 0x69 (VCC); try both.
 constexpr uint8_t MPU6050_ADDRESS_PRIMARY = 0x68, MPU6050_ADDRESS_ALTERNATE = 0x69;
-// This hardware build has MPU6050 only; no INA226 power monitor is installed.
-constexpr bool INA226_PRESENT = false;
+// Final demonstration hardware includes the INA226 current monitor.
+constexpr bool INA226_PRESENT = true;
 // INA226 address straps select an address from this range. The firmware checks
 // every address and accepts one only after its manufacturer/device IDs match.
 constexpr uint8_t INA_ADDRESS_MIN = 0x40, INA_ADDRESS_MAX = 0x4F;
