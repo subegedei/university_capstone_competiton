@@ -1,7 +1,6 @@
 // Classic ESP32 / Arduino-ESP32 2.0.17. See config.h before wiring.
 #include <Arduino.h>
 #include <Wire.h>
-#include <Adafruit_BNO08x.h>
 #include <ArduinoJson.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -18,7 +17,6 @@ const char *SERVICE = "f3f1a000-7c5b-4f18-b0bb-7d9cb9d00001";
 const char *NOTIFY = "f3f1a001-7c5b-4f18-b0bb-7d9cb9d00001";
 const char *CONTROL = "f3f1a002-7c5b-4f18-b0bb-7d9cb9d00001";
 const char *INFO = "f3f1a003-7c5b-4f18-b0bb-7d9cb9d00001";
-Adafruit_BNO08x bno(BNO_RST_PIN);
 BLECharacteristic *notifyChar;
 QueueHandle_t rxQueue, txQueue;
 std::atomic<bool> connected(false), advertiseAgain(false);
@@ -31,26 +29,22 @@ struct OutputState {
 } output;
 struct Frame { uint32_t generation; char text[1400]; };
 bool imuFound = false, imuReady = false, powerReady = false, sweeping = false;
-// The BNO085 only produces reports while a sweep is being prepared or run.
-// This prevents a permanently active report from loading the shared I2C bus.
+// MPU6050 sampling is enabled only while a sweep is being prepared or run.
 bool imuReportEnabled = false;
 bool inaConfigured = false;
 uint8_t powerReadFailures = 0;
-uint8_t bnoAddress = 0, inaAddress = 0;
-uint32_t lastSensorRetry = 0, imuInitAt = 0;
-uint8_t bnoNoResponseCycles = 0;
+uint8_t mpuAddress = 0, inaAddress = 0;
+uint32_t lastSensorRetry = 0, imuInitAt = 0, lastMpuReadAt = 0;
+uint8_t mpuNoResponseCycles = 0;
 constexpr uint32_t SENSOR_RETRY_MS = 5000;
-constexpr uint32_t IMU_REPORT_INTERVAL_US = 8000; // 125 Hz: >3 samples/cycle at 40 Hz.
+constexpr uint32_t IMU_SAMPLE_INTERVAL_MS = 8; // 125 Hz: >3 samples/cycle at 40 Hz.
 // The IMU gets a shorter retry interval while it is offline; the healthy
 // INA226 continues being read once per telemetry window.
-constexpr uint32_t BNO_OFFLINE_RETRY_MS = 2000;
-constexpr uint8_t BNO_BUS_RECOVERY_AFTER_MISSES = 2;
-// A USB power source can bring up the ESP32 before the BNO085 has completed
-// its own power-on boot.  Give the sensor a stable supply before its first
-// SHTP session, then start from a known reset state.
+constexpr uint32_t MPU_OFFLINE_RETRY_MS = 2000;
+constexpr uint8_t MPU_BUS_RECOVERY_AFTER_MISSES = 2;
+// Give the MPU6050 board a stable supply before its first I2C configuration.
 constexpr uint32_t SENSOR_COLD_STARTUP_DELAY_MS = 1000;
-constexpr uint32_t BNO_RESET_PULSE_MS = 10;
-constexpr uint32_t BNO_BOOT_DELAY_MS = 300;
+constexpr uint32_t MPU_BOOT_DELAY_MS = 100;
 String sessionId, bootId, recentIds[8], recentAcks[8];
 unsigned recentNext = 0;
 uint32_t sequence = 0, lastImu = 0, windowStart = 0, sampleCount = 0, seenGeneration = 0;
@@ -184,81 +178,88 @@ uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
 }
-// A BNO085 that was unplugged while the ESP32 was running can retain an
-// incomplete I2C/SHTP session. Restart the I2C side before the next probe;
-// pulse RST as well when that optional wire is actually connected.
-void resetBnoAndI2C() {
-  Serial.println("BNO085: restarting I2C bus before retry");
+void resetI2C() {
+  Serial.println("I2C: restarting bus before retry");
   Wire.end();
   pinMode(SDA_PIN, INPUT_PULLUP);
   pinMode(SCL_PIN, INPUT_PULLUP);
-
-  if (BNO_RST_PIN >= 0) {
-    Serial.println("BNO085: pulsing wired RST pin");
-    pinMode(BNO_RST_PIN, OUTPUT);
-    digitalWrite(BNO_RST_PIN, LOW);
-    delay(BNO_RESET_PULSE_MS);
-    digitalWrite(BNO_RST_PIN, HIGH);
-  }
-  delay(BNO_BOOT_DELAY_MS);
-
+  delay(MPU_BOOT_DELAY_MS);
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000);
   Wire.setTimeOut(20);
 }
+bool writeByte(uint8_t address, uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(address); Wire.write(reg); Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+bool readBytes(uint8_t address, uint8_t reg, uint8_t *buffer, size_t length) {
+  Wire.beginTransmission(address); Wire.write(reg);
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(address, uint8_t(length)) != length) return false;
+  for (size_t i = 0; i < length; ++i) buffer[i] = Wire.read();
+  return true;
+}
+bool configureMpu6050(uint8_t address) {
+  // Wake from sleep, select ±2 g (16384 LSB/g), DLPF 44 Hz and 125 Hz output.
+  if (!writeByte(address, 0x6B, 0x01)) return false;
+  delay(20);
+  return writeByte(address, 0x1A, 0x03) && writeByte(address, 0x19, 0x07) && writeByte(address, 0x1C, 0x00);
+}
 bool setImuReport(bool enabled) {
-  if (!imuFound) return false;
-  // The Adafruit wrapper forwards an interval of zero as the SH-2 disable
-  // request.  Do not use any rotation-vector report in this firmware.
-  if (!bno.enableReport(SH2_LINEAR_ACCELERATION, enabled ? IMU_REPORT_INTERVAL_US : 0)) return false;
+  if (!imuFound || !writeByte(mpuAddress, 0x6B, enabled ? 0x01 : 0x40)) return false;
   imuReportEnabled = enabled;
   if (!enabled) { imuReady = false; lastImu = 0; resetWindow(); }
-  Serial.printf("BNO085: linear acceleration report %s\n", enabled ? "enabled at 125 Hz" : "disabled");
+  Serial.printf("MPU6050: accelerometer %s\n", enabled ? "enabled at 125 Hz" : "sleeping");
   return true;
+}
+bool readMpuAcceleration(float &x, float &y, float &z) {
+  uint8_t raw[6];
+  if (!readBytes(mpuAddress, 0x3B, raw, sizeof(raw))) return false;
+  const float scale = 9.80665f / 16384.0f;
+  x = int16_t(uint16_t(raw[0]) << 8 | raw[1]) * scale;
+  y = int16_t(uint16_t(raw[2]) << 8 | raw[3]) * scale;
+  z = int16_t(uint16_t(raw[4]) << 8 | raw[5]) * scale;
+  return isfinite(x) && isfinite(y) && isfinite(z);
 }
 void retrySensors() {
   // Address probing may block the shared bus and create gaps in a 1.6 s fit.
   if (measurement.state == MEASUREMENT_CAPTURING || measurement.state == MEASUREMENT_SETTLING) return;
   if (imuFound && imuReportEnabled && millis() - (lastImu ? lastImu : imuInitAt) >= SENSOR_RETRY_MS) {
     stopOutput();
-    Serial.println("BNO085: no data for 5 seconds; restarting sensor session");
+    Serial.println("MPU6050: no data for 5 seconds; restarting sensor session");
     imuFound = false; imuReady = false; lastImu = 0;
-    bnoNoResponseCycles = 0;
-    sh2_close();
+    mpuNoResponseCycles = 0;
   }
   if (!imuFound) {
-    const uint8_t bnoCandidates[] = { BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE };
+    const uint8_t mpuCandidates[] = { MPU6050_ADDRESS_PRIMARY, MPU6050_ADDRESS_ALTERNATE };
     uint8_t timeouts = 0;
     bool response = false;
-    for (uint8_t address : bnoCandidates) {
+    for (uint8_t address : mpuCandidates) {
       const uint8_t result = probeI2C(address);
       if (result == 5) { ++timeouts; continue; }
       if (result != 0) continue;
       response = true;
-      Serial.printf("BNO085: 0x%02X responding; initializing\n", address);
-      const bool initialized = bno.begin_I2C(address, &Wire);
-      if (initialized) {
-        bnoNoResponseCycles = 0;
-        bnoAddress = address; imuFound = true; imuReportEnabled = false; imuReady = false; imuInitAt = millis(); lastImu = 0;
-        Serial.println("BNO085: initialized; report remains off until sweep preparation");
+      Serial.printf("MPU6050: 0x%02X responding; initializing\n", address);
+      if (configureMpu6050(address)) {
+        mpuNoResponseCycles = 0;
+        mpuAddress = address; imuFound = true; imuReportEnabled = false; imuReady = false; imuInitAt = millis(); lastImu = 0;
+        setImuReport(false);
+        Serial.println("MPU6050: initialized; sleeping until sweep preparation");
         break;
       }
-      Serial.println("BNO085: initialization or acceleration report setup failed; retrying");
-      if (initialized) sh2_close();
-      // Do not reset the shared bus for a BNO-only error: INA226 shares it.
+      Serial.println("MPU6050: configuration failed; retrying");
       break;
     }
     if (!response) {
-      Serial.printf("BNO085: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
-        BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, timeouts);
+      Serial.printf("MPU6050: no response at 0x%02X or 0x%02X (%u timeout(s))\n",
+        MPU6050_ADDRESS_PRIMARY, MPU6050_ADDRESS_ALTERNATE, timeouts);
       // A controller restart is justified only when neither device is usable.
-      // Restarting it for an isolated BNO085 failure makes INA226 disappear too.
-      if (++bnoNoResponseCycles >= BNO_BUS_RECOVERY_AFTER_MISSES && !inaConfigured) {
-        bnoNoResponseCycles = 0;
-        Serial.println("BNO085: repeated address misses; attempting I2C controller recovery");
-        resetBnoAndI2C();
+      // Restarting it for an isolated MPU6050 failure makes INA226 disappear too.
+      if (++mpuNoResponseCycles >= MPU_BUS_RECOVERY_AFTER_MISSES && !inaConfigured) {
+        mpuNoResponseCycles = 0;
+        Serial.println("MPU6050: repeated address misses; attempting I2C controller recovery");
+        resetI2C();
       }
-    } else bnoNoResponseCycles = 0;
+    } else mpuNoResponseCycles = 0;
   }
   if (!inaConfigured) {
     uint8_t timeouts = 0;
@@ -306,15 +307,15 @@ void handleCommand(const Frame &frame) {
     if (!before.active || sid != sessionId) error = "Session inactive";
     else { portENTER_CRITICAL(&outputMux); output.lease = esp_timer_get_time() + LEASE_MS * 1000LL; portEXIT_CRITICAL(&outputMux); }
   } else if (kind == "prepare") {
-    if (!imuFound) error = "BNO085 is offline";
-    else if (!setImuReport(true)) error = "BNO085 report setup failed";
+    if (!imuFound) error = "MPU6050 is offline";
+    else if (!setImuReport(true)) error = "MPU6050 setup failed";
     else sweeping = true;
   } else if (kind == "measure") {
-    if (!imuReady) error = "BNO085 must be ready";
+    if (!imuReady) error = "MPU6050 must be ready";
     else startMeasurement(hz);
   } else if (kind == "start" || kind == "sweep" || kind == "update") {
     if (!OUTPUT_ENABLED) error = "Output locked: verify amplifier and config.h";
-    else if (!imuReady || !powerReady) error = "BNO085 and INA226 must be ready";
+    else if (!imuReady || !powerReady) error = "MPU6050 and INA226 must be ready";
     else if (kind == "update" && (!before.active || sid != sessionId)) error = "Session inactive";
     else if (kind != "update" && before.active) error = "Stop current session first";
     else {
@@ -338,7 +339,7 @@ void handleCommand(const Frame &frame) {
 }
 void telemetry() {
   // Keep INA226 observable while idle as well: this is essential for wiring
-  // diagnostics and does not enable the BNO085 report outside a sweep.
+  // diagnostics and does not enable MPU6050 sampling outside a sweep.
   readPower();
   imuReady = imuFound && lastImu != 0 && millis() - lastImu < 500;
   // Browser Bluetooth audio is independent of INA226. For the optional DAC
@@ -379,7 +380,6 @@ void telemetry() {
 }
 void setup() {
   Serial.begin(115200);
-  if (BNO_INT_PIN >= 0) pinMode(BNO_INT_PIN, INPUT_PULLUP); // I2C transport polls, no ISR.
   pinMode(25, INPUT);
   rxQueue = xQueueCreate(4, sizeof(Frame)); txQueue = xQueueCreate(4, sizeof(Frame));
   if (!rxQueue || !txQueue) abort();
@@ -402,7 +402,7 @@ void setup() {
   JsonDocument doc;
   doc["protocolVersion"] = 3; doc["firmwareVersion"] = "3.0.0";
   doc["audioSource"] = "esp32-dac"; doc["outputMode"] = "common"; doc["outputEnabled"] = OUTPUT_ENABLED;
-  doc["sensors"]["imu"] = "BNO085"; doc["sensors"]["power"] = "INA226";
+  doc["sensors"]["imu"] = "MPU6050"; doc["sensors"]["power"] = "INA226";
   String value; serializeJson(doc, value); info->setValue(value.c_str());
   service->start(); BLEDevice::getAdvertising()->addServiceUUID(SERVICE);
   BLEDevice::getAdvertising()->setScanResponse(true); BLEDevice::startAdvertising();
@@ -411,11 +411,11 @@ void setup() {
   Serial.printf("BLE ready, OUTPUT_ENABLED=%d. No automatic start.\n", OUTPUT_ENABLED);
   // Diagnose the shared sensor bus at 100 kHz before considering a faster bus.
   Wire.begin(SDA_PIN, SCL_PIN); Wire.setClock(100000); Wire.setTimeOut(20);
-  Serial.printf("I2C: SDA=%d SCL=%d; BNO085=0x%02X/0x%02X INA226=0x%02X..0x%02X; 100 kHz diagnostic; retry every 5 seconds\n",
-    SDA_PIN, SCL_PIN, BNO_ADDRESS_PRIMARY, BNO_ADDRESS_ALTERNATE, INA_ADDRESS_MIN, INA_ADDRESS_MAX);
-  Serial.printf("BNO085: waiting %lu ms for power-on stabilization\n", SENSOR_COLD_STARTUP_DELAY_MS);
+  Serial.printf("I2C: SDA=%d SCL=%d; MPU6050=0x%02X/0x%02X INA226=0x%02X..0x%02X; 100 kHz diagnostic\n",
+    SDA_PIN, SCL_PIN, MPU6050_ADDRESS_PRIMARY, MPU6050_ADDRESS_ALTERNATE, INA_ADDRESS_MIN, INA_ADDRESS_MAX);
+  Serial.printf("MPU6050: waiting %lu ms for power-on stabilization\n", SENSOR_COLD_STARTUP_DELAY_MS);
   delay(SENSOR_COLD_STARTUP_DELAY_MS);
-  resetBnoAndI2C();
+  resetI2C();
   retrySensors();
   lastSensorRetry = millis();
 }
@@ -427,38 +427,25 @@ void loop() {
   }
   Frame frame;
   if (xQueueReceive(rxQueue, &frame, 0) == pdTRUE) handleCommand(frame);
-  // Retry a missing BNO085 sooner, but do not block an ongoing frequency
+  // Retry a missing MPU6050 sooner, but do not block an ongoing frequency
   // capture with I2C scanning/reinitialization.
-  const uint32_t retryInterval = imuFound ? SENSOR_RETRY_MS : BNO_OFFLINE_RETRY_MS;
+  const uint32_t retryInterval = imuFound ? SENSOR_RETRY_MS : MPU_OFFLINE_RETRY_MS;
   if (millis() - lastSensorRetry >= retryInterval) {
     lastSensorRetry = millis();
     retrySensors();
   }
-  if (imuFound) {
-    if (bno.wasReset()) {
-      stopOutput(); lastImu = 0; imuInitAt = millis(); resetWindow();
-      if (measurement.state == MEASUREMENT_SETTLING || measurement.state == MEASUREMENT_CAPTURING) {
-        measurement.state = MEASUREMENT_INVALID; measurement.quality = "BNO085_RESET";
-      }
-      if (imuReportEnabled && !bno.enableReport(SH2_LINEAR_ACCELERATION, IMU_REPORT_INTERVAL_US)) {
-        Serial.println("BNO085: report setup after reset failed; retrying");
-        imuFound = false; imuReady = false; sh2_close();
-      }
-    }
-    sh2_SensorValue_t event;
-    if (imuFound && bno.getSensorEvent(&event) && event.sensorId == SH2_LINEAR_ACCELERATION) {
-      ax = event.un.linearAcceleration.x; ay = event.un.linearAcceleration.y; az = event.un.linearAcceleration.z;
-      if (isfinite(ax) && isfinite(ay) && isfinite(az)) {
-        sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
-        sampleCount++; lastImu = millis(); imuReady = true;
-        if (measurement.state == MEASUREMENT_CAPTURING && measurement.count < MEASUREMENT_MAX_SAMPLES) {
-          const uint64_t sensorTime = event.timestamp;
-          if (!sensorTime || (measurement.count && (sensorTime <= measurement.sensorTime[measurement.count - 1] ||
-              sensorTime - measurement.sensorTime[measurement.count - 1] > 50000))) measurement.sensorClockValid = false;
-          measurement.sensorTime[measurement.count] = sensorTime;
-          measurement.time[measurement.count] = esp_timer_get_time();
-          measurement.value[measurement.count++] = MEASUREMENT_AXIS == 'X' ? ax : MEASUREMENT_AXIS == 'Y' ? ay : az;
-        }
+  if (imuFound && imuReportEnabled && millis() - lastMpuReadAt >= IMU_SAMPLE_INTERVAL_MS) {
+    lastMpuReadAt = millis();
+    if (!readMpuAcceleration(ax, ay, az)) {
+      imuReady = false;
+    } else {
+      sumSquares += double(ax)*ax + double(ay)*ay + double(az)*az;
+      sampleCount++; lastImu = millis(); imuReady = true;
+      if (measurement.state == MEASUREMENT_CAPTURING && measurement.count < MEASUREMENT_MAX_SAMPLES) {
+        const uint64_t stamp = esp_timer_get_time();
+        measurement.sensorTime[measurement.count] = stamp;
+        measurement.time[measurement.count] = stamp;
+        measurement.value[measurement.count++] = MEASUREMENT_AXIS == 'X' ? ax : MEASUREMENT_AXIS == 'Y' ? ay : az;
       }
     }
   }

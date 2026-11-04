@@ -4,7 +4,7 @@
     "firmwareVersion": "3.0.0",
     "audioSource": "esp32-dac",
     "sensors": {
-      "imu": "BNO085",
+      "imu": "MPU6050",
       "power": "INA226"
     },
     "outputMode": "common", "outputEnabled": true

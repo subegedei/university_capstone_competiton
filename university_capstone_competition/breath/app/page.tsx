@@ -160,7 +160,7 @@ export default function Dashboard() {
           <Metric label="남은 시간" text={view.playing && !view.sweeping && remaining !== null ? time(remaining) : "--:--"} />
           <Metric label="펌웨어" text={view.info?.firmwareVersion ?? "—"} />
         </article>
-        <article className="panel sensor"><div className="panel-title"><h2>BNO085 · 선형 가속도</h2><span className={"tag " + (telemetry?.imu.ready ? "good" : "")}>{telemetry ? (telemetry.imu.ready ? "수신 중" : "센서 미준비") : "대기"}</span></div>
+        <article className="panel sensor"><div className="panel-title"><h2>MPU6050 · 가속도</h2><span className={"tag " + (telemetry?.imu.ready ? "good" : "")}>{telemetry ? (telemetry.imu.ready ? "수신 중" : "센서 미준비") : "대기"}</span></div>
           <Metric label="진동 RMS" text={value(telemetry?.imu.ready ? telemetry.imu.accelerationRms : null, "m/s²", 3)} />
           <div className="axes"><span>X {value(telemetry?.imu.linearAcceleration?.x, "", 3)}</span><span>Y {value(telemetry?.imu.linearAcceleration?.y, "", 3)}</span><span>Z {value(telemetry?.imu.linearAcceleration?.z, "", 3)}</span></div>
           <p className="helper">샘플링 {value(telemetry?.imu.sampleRateHz, "Hz", 0)} · 윈도우 {telemetry?.imu.sampleCount ?? "—"}개</p>

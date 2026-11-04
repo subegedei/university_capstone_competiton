@@ -157,7 +157,7 @@ export class MeasurementSession {
       throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");
     }
     if (this.view.telemetry.status === "error") throw new Error(this.view.telemetry.error || "ESP32 센서 오류를 확인하세요.");
-    if ((requireImu && !this.view.telemetry.imu.ready) || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "BNO085 가속도 센서가 준비돼야 합니다.");
+    if ((requireImu && !this.view.telemetry.imu.ready) || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "MPU6050 가속도 센서가 준비돼야 합니다.");
     if (settings.intensityPercent <= 0) throw new Error("출력 레벨을 0%보다 높게 설정하세요.");
   }
 
@@ -171,7 +171,7 @@ export class MeasurementSession {
       await delay(150, signal);
     }
     if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < MIN_SWEEP_SAMPLE_RATE_HZ) {
-      throw new Error("BNO085 선형 가속도 센서가 125 Hz 측정 준비를 완료하지 못했습니다.");
+      throw new Error("MPU6050 가속도 센서가 125 Hz 측정 준비를 완료하지 못했습니다.");
     }
   }
 
@@ -261,12 +261,12 @@ export class MeasurementSession {
               }
               if (!this.view.telemetry?.imu.ready) {
                 if (attempt < MAX_MEASUREMENT_ATTEMPTS) continue;
-                throw new Error("BNO085 가속도 센서가 복구되지 않아 스윕을 중지했습니다.");
+                throw new Error("MPU6050 가속도 센서가 복구되지 않아 스윕을 중지했습니다.");
               }
               try {
                 await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
               } catch (error) {
-                if (attempt < MAX_MEASUREMENT_ATTEMPTS && this.error(error).includes("BNO085 must be ready")) {
+                if (attempt < MAX_MEASUREMENT_ATTEMPTS && this.error(error).includes("MPU6050 must be ready")) {
                   this.patch({ message: hz + " Hz 센서 응답이 늦어 재시도합니다." });
                   await delay(1500, signal);
                   continue;
@@ -352,7 +352,7 @@ export class MeasurementSession {
     const source = this.view.resultMode ?? (this.view.mode === "demo" ? "demo" : "device");
     const data = {
       recordedAt: new Date().toISOString(), source,
-      hardware: "ZK-502C Bluetooth audio + ESP32 BNO085 + INA226",
+      hardware: "ZK-502C Bluetooth audio + ESP32 MPU6050 + INA226",
       settings: this.settings, stimulationArea: this.area, samples: this.view.samples, result: this.view.result,
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
