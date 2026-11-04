@@ -17,13 +17,12 @@ const sweepFrequencies = Array.from(
   { length: MAX_STIMULATION_FREQUENCY_HZ - MIN_STIMULATION_FREQUENCY_HZ + 1 },
   (_, index) => MIN_STIMULATION_FREQUENCY_HZ + index,
 );
-const coarseSweepFrequencies = [25, 27, 29, 31, 33, 35, 37, 39, 40];
-// Nine coarse points plus up to two new fine points need time for the physical
-// actuator to settle, the 1.6-second firmware capture, and a fragmented BLE
-// telemetry frame.  Keep room for a retry when one result frame is late.
+const coarseSweepFrequencies = [25, 28, 31, 34, 37, 40];
+// Six coarse points plus two local fine points keep the sweep brief while
+// retaining a finer 1 Hz check around the strongest coarse response.
 const SWEEP_DURATION_SECONDS = 90;
-const DEVICE_SETTLING_MS = 1500;
-const DEVICE_RESULT_WAIT_MS = 3200;
+const DEVICE_SETTLING_MS = 700;
+const DEVICE_RESULT_WAIT_MS = 1800;
 const MAX_MEASUREMENT_ATTEMPTS = 2;
 const SWEEP_SENSOR_READY_TIMEOUT_MS = 6000;
 const MIN_SWEEP_SAMPLE_RATE_HZ = 200;
@@ -236,8 +235,9 @@ export class MeasurementSession {
       if (signal.aborted) return;
       if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
-      this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 약 2 Hz 간격으로 탐색합니다." });
+      this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 탐색합니다." });
       const samples: SweepSample[] = [];
+      const expectedSamples = coarseSweepFrequencies.length + 2;
       const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
       // This is a maximum wait, not a delay applied to every point. Advance
       // as soon as the complete measurement telemetry arrives.
@@ -249,7 +249,7 @@ export class MeasurementSession {
             this.settings = { ...sweepSettings, frequencyHz: hz };
             if (mode === "device") this.audio.update(hz, settings.intensityPercent);
           }
-          this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
+          this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / expectedSamples) });
           let collector: { hz: number; after: number; windows: Telemetry[]; invalid?: Telemetry } | undefined;
           for (let attempt = 1; attempt <= MAX_MEASUREMENT_ATTEMPTS; attempt++) {
             if (mode === "device") {
@@ -307,7 +307,7 @@ export class MeasurementSession {
             sampleRateHz: fundamental.sampleRateHz,
             busVoltageV: meanPower("busVoltageV"), currentA: meanPower("currentA"), powerW: meanPower("powerW"),
           });
-          this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / 11) });
+          this.patch({ samples: [...samples], progress: Math.min(0.95, samples.length / expectedSamples) });
         }
       };
       await measure(coarseSweepFrequencies);
@@ -316,10 +316,10 @@ export class MeasurementSession {
       // high response, but cannot by itself prove where a peak is located.
       const coarsePeakHz = samples[refinementCenterIndex(samples)].hz;
       const fineFrequencies = Array.from(
-        { length: 5 },
-        (_, index) => Math.min(MAX_STIMULATION_FREQUENCY_HZ, Math.max(MIN_STIMULATION_FREQUENCY_HZ, coarsePeakHz - 2 + index)),
+        { length: 3 },
+        (_, index) => Math.min(MAX_STIMULATION_FREQUENCY_HZ, Math.max(MIN_STIMULATION_FREQUENCY_HZ, coarsePeakHz - 1 + index)),
       ).filter((hz, index, values) => values.indexOf(hz) === index && !samples.some((sample) => sample.hz === hz));
-      this.patch({ message: "2단계: " + coarsePeakHz + " Hz 주변을 1 Hz 간격으로 정밀 측정합니다." });
+      this.patch({ message: "2단계: " + coarsePeakHz + " Hz 주변을 1 Hz 간격으로 확인합니다." });
       await measure(fineFrequencies);
       if (signal.aborted) return;
       this.patch({ progress: 1 });

@@ -244,3 +244,59 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
   .summary-link { min-height: 44px; }
 }
 
+/* Compact the initial HOME view for a single mobile viewport. */
+@media (max-width: 800px) {
+  .screen-shell-home { width: min(600px, calc(100% - 24px)); padding-top: 10px; padding-bottom: 14px; }
+  .screen-shell-home .topbar { gap: 7px 10px; }
+  .screen-shell-home .brand { gap: 9px; }
+  .screen-shell-home .brand-mark { width: 40px; height: 40px; border-radius: 12px; font-size: 22px; }
+  .screen-shell-home .brand .eyebrow,
+  .screen-shell-home .subtitle,
+  .screen-shell-home .mobile-message { display: none; }
+  .screen-shell-home .topbar h1 { font-size: 19px; }
+  .screen-shell-home .connection-indicator { padding: 7px 9px; font-size: 11px; }
+  .screen-shell-home .section-nav { margin-top: 6px; padding: 3px; border-radius: 13px; }
+  .screen-shell-home .section-nav button { min-height: 48px; gap: 2px; padding: 4px 2px; font-size: 10px; }
+  .screen-shell-home .section-nav svg { width: 16px; height: 16px; }
+  .screen-shell-home .home-summary { min-height: 0; margin: 9px 0; padding: 12px 14px; border-radius: 16px; }
+  .screen-shell-home .home-summary > div:first-child { min-width: 0; }
+  .screen-shell-home .home-summary .eyebrow { margin-bottom: 3px; font-size: 9px; }
+  .screen-shell-home .home-summary h2 { margin: 0; font-size: 13px; }
+  .screen-shell-home .home-summary strong { font-size: 34px; line-height: 1.05; }
+  .screen-shell-home .home-summary .hero-note { margin-top: 3px; font-size: 10px; }
+  .screen-shell-home .home-summary .status { display: block; max-width: 46%; text-align: right; }
+  .screen-shell-home .home-summary .status p { display: none; }
+  .screen-shell-home .home-summary .badge { padding: 6px 8px; font-size: 10px; }
+  .screen-shell-home .summary-link { margin-top: 5px; font-size: 10px; }
+  .screen-shell-home .layout { gap: 0; }
+  .screen-shell-home .controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px; border-radius: 16px; }
+  .screen-shell-home .controls > .panel-title,
+  .screen-shell-home .controls > .setting-preview,
+  .screen-shell-home .controls > .channels,
+  .screen-shell-home .controls > .actions { grid-column: 1 / -1; }
+  .screen-shell-home .controls .panel-title { align-items: center; gap: 6px; }
+  .screen-shell-home .controls .panel-title .eyebrow { display: none; }
+  .screen-shell-home .controls .panel-title h2 { font-size: 15px; }
+  .screen-shell-home .controls .panel-title .link { min-height: 40px; padding: 4px; font-size: 11px; }
+  .screen-shell-home .setting-preview { margin: 0; padding: 9px 12px; border-radius: 12px; }
+  .screen-shell-home .setting-preview strong { display: inline; margin: 0 5px 0 0; font-size: 27px; }
+  .screen-shell-home .setting-preview strong small { font-size: 13px; }
+  .screen-shell-home .preview-label { display: inline; margin-right: 8px; font-size: 11px; }
+  .screen-shell-home .preview-description { display: inline; font-size: 10px; }
+  .screen-shell-home .wave-art { display: none; }
+  .screen-shell-home .channels { min-height: 42px; padding: 5px 8px; font-size: 12px; }
+  .screen-shell-home .channel { min-height: 36px; margin-left: 3px; padding: 5px 8px; font-size: 10px; }
+  .screen-shell-home .slider { min-width: 0; margin: 0; padding: 7px; border-radius: 11px; }
+  .screen-shell-home .slider label > span { display: flex; flex-direction: column; gap: 2px; font-size: 11px; }
+  .screen-shell-home .slider b { font-size: 13px; }
+  .screen-shell-home .slider input { height: 24px; min-height: 28px; margin: 3px 0; }
+  .screen-shell-home .slider small { font-size: 9px; }
+  .screen-shell-home .slider .stepper { gap: 3px; margin-top: 4px; }
+  .screen-shell-home .slider .stepper span { display: none; }
+  .screen-shell-home .slider .stepper button { width: 40px; min-height: 40px; padding: 0; font-size: 17px; }
+  .screen-shell-home .controls > .helper { display: none; }
+  .screen-shell-home .actions { gap: 8px; margin: 0; }
+  .screen-shell-home .actions button { min-height: 50px; padding: 7px 10px; border-radius: 12px; }
+  .screen-shell-home .actions small { display: none; }
+}
+

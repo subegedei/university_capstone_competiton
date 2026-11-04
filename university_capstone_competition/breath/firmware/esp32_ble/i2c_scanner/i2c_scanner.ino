@@ -1,18 +1,18 @@
 // Minimal ESP32 I2C diagnostic.
 // This sketch intentionally has NO BLE, BNO085, INA226, or audio code.
-// It only checks whether anything answers on GPIO21 (SDA) / GPIO22 (SCL).
+// It only checks whether anything answers on GPIO32 (SDA) / GPIO33 (SCL).
 
 #include <Wire.h>
 
-constexpr int SDA_PIN = 21;
-constexpr int SCL_PIN = 22;
+constexpr int SDA_PIN = 32;
+constexpr int SCL_PIN = 33;
 constexpr uint32_t I2C_CLOCK_HZ = 100000; // conservative diagnostic speed
 
 void scanBus() {
   uint8_t found = 0;
   uint8_t errors = 0;
 
-  Serial.println("\nI2C scan: GPIO21=SDA, GPIO22=SCL, 100 kHz");
+  Serial.println("\nI2C scan: GPIO32=SDA, GPIO33=SCL, 100 kHz");
   for (uint8_t address = 1; address < 127; ++address) {
     Wire.beginTransmission(address);
     const uint8_t result = Wire.endTransmission();
@@ -28,7 +28,7 @@ void scanBus() {
 
   if (found == 0) Serial.println("  no I2C addresses found");
   Serial.printf("scan complete: %u address(es), %u timeout(s)\n", found, errors);
-  Serial.println("Expected when wired correctly: BNO085 0x4B, INA226 0x40");
+  Serial.println("Expected addresses: MPU6050 0x68 or 0x69; INA226 0x40..0x4F");
 }
 
 void setup() {

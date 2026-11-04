@@ -89,7 +89,7 @@ export default function Dashboard() {
     setFrequency(preset.frequency); setIntensity(preset.intensity); setMinutes(preset.minutes); setArea(preset.area);
   }
 
-  return <main className="shell" id="home">
+  return <main className={`shell screen-shell-${screen}`} id="home">
     <header className="topbar">
       <div className="brand"><span className="brand-mark" aria-hidden="true">🫁</span><div><p className="eyebrow">BREATH TOK-TOK</p><h1>숨결톡톡</h1><p className="subtitle">진동 제어 · 실시간 센서 모니터링</p></div></div>
       <span className={"connection-indicator " + (connected ? "connected" : "")}><span className="dot" />{view.mode === "demo" ? "데모" : connected ? "ESP32 연결됨" : "연결 대기"}</span>
