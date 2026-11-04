@@ -101,8 +101,10 @@ export class MeasurementSession {
     this.patch({ telemetry: data });
     if (data.status === "error") {
       const message = data.error || "ESP32 센서 오류를 확인하세요.";
-      if (this.view.sweeping) void this.stop(message);
-      else this.patch({ message: message + " · 오디오 출력은 별도로 유지됩니다." });
+      if (this.view.sweeping) {
+        if (this.collect) this.collect.invalid = data;
+        this.patch({ message: message + " · 시연 응답으로 전환합니다." });
+      } else this.patch({ message: message + " · 오디오 출력은 별도로 유지됩니다." });
       return;
     }
     const collector = this.collect;
