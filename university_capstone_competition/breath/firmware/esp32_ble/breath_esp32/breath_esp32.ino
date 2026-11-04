@@ -56,7 +56,7 @@ constexpr uint32_t MEASUREMENT_SETTLE_MS = 800, MEASUREMENT_CAPTURE_MS = 1600;
 constexpr size_t MEASUREMENT_MAX_SAMPLES = 520;
 constexpr float MEASUREMENT_MIN_SAMPLES_PER_CYCLE = 5.0f;
 enum MeasurementState { MEASUREMENT_IDLE, MEASUREMENT_SETTLING, MEASUREMENT_CAPTURING, MEASUREMENT_COMPLETE, MEASUREMENT_INVALID };
-struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES], sensorTime[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; bool sensorClockValid = true; float rms = NAN, r2 = NAN, rate = NAN; const char *quality = nullptr; } measurement;
+struct FundamentalMeasurement { MeasurementState state = MEASUREMENT_IDLE; float hz = 0; uint32_t startedAt = 0; uint64_t time[MEASUREMENT_MAX_SAMPLES], sensorTime[MEASUREMENT_MAX_SAMPLES]; float value[MEASUREMENT_MAX_SAMPLES]; size_t count = 0; bool sensorClockValid = true; float rms = NAN, r2 = NAN, rate = NAN, mean = NAN, rawAcRms = NAN, residualRms = NAN, bestFitHz = NAN, bestFitR2 = NAN; const char *quality = nullptr; } measurement;
 constexpr char MEASUREMENT_AXIS = 'Z';
 // Keep this function after project types so Arduino IDE's generated
 // declarations do not reference OutputState or Frame before their definition.
@@ -164,7 +164,7 @@ void readPower() {
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
 bool solve3x3(double a[3][4], double x[3]) { for (int k=0;k<3;++k) { int b=k; for(int r=k+1;r<3;++r) if(fabs(a[r][k])>fabs(a[b][k])) b=r; if(fabs(a[b][k])<1e-9) return false; for(int j=k;j<4;++j){double t=a[k][j];a[k][j]=a[b][j];a[b][j]=t;} double d=a[k][k]; for(int j=k;j<4;++j)a[k][j]/=d; for(int r=0;r<3;++r)if(r!=k){double q=a[r][k];for(int j=k;j<4;++j)a[r][j]-=q*a[k][j];}} for(int k=0;k<3;++k)x[k]=a[k][3]; return true; }
-void startMeasurement(float hz) { measurement.state=MEASUREMENT_SETTLING; measurement.hz=hz; measurement.startedAt=millis(); measurement.count=0; measurement.sensorClockValid=true; measurement.rms=NAN; measurement.r2=NAN; measurement.rate=NAN; measurement.quality="SETTLING"; Serial.printf("MEASURE: start %.1f Hz\n", hz); }
+void startMeasurement(float hz) { measurement.state=MEASUREMENT_SETTLING; measurement.hz=hz; measurement.startedAt=millis(); measurement.count=0; measurement.sensorClockValid=true; measurement.rms=NAN; measurement.r2=NAN; measurement.rate=NAN; measurement.mean=NAN; measurement.rawAcRms=NAN; measurement.residualRms=NAN; measurement.bestFitHz=NAN; measurement.bestFitR2=NAN; measurement.quality="SETTLING"; Serial.printf("MEASURE: start %.1f Hz\n", hz); }
 void prepareMeasurementTimes() {
   // Prefer the sensor's acquisition time, which is unaffected by host-side
   // I2C/BLE scheduling. Fall back to one consistent ESP32 clock for the whole
@@ -172,8 +172,82 @@ void prepareMeasurementTimes() {
   if (measurement.sensorClockValid && measurement.count > 1)
     for (size_t i = 0; i < measurement.count; ++i) measurement.time[i] = measurement.sensorTime[i];
 }
-void finishMeasurement() { if(measurement.count<64){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.rate=sampleCount*1000.0/max(1UL,millis()-windowStart);measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} uint64_t t0=measurement.time[0],t1=measurement.time[measurement.count-1]; if(t1<=t0){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;} double seconds=(t1-t0)*1e-6, n[3][3]={{0}},rhs[3]={0},mean=0,total=0; measurement.rate=(measurement.count-1)/seconds; for(size_t i=0;i<measurement.count;++i){double t=(measurement.time[i]-t0)*1e-6,y=measurement.value[i],angle=TWO_PI*measurement.hz*t,v[3]={1,cos(angle),sin(angle)};mean+=y;total+=y*y;for(int r=0;r<3;++r){rhs[r]+=v[r]*y;for(int c=0;c<3;++c)n[r][c]+=v[r]*v[c];}} mean/=measurement.count;double a[3][4],b[3];for(int r=0;r<3;++r){for(int c=0;c<3;++c)a[r][c]=n[r][c];a[r][3]=rhs[r];}if(!solve3x3(a,b)){measurement.rms=sampleCount?sqrt(sumSquares/sampleCount):0;measurement.state=MEASUREMENT_COMPLETE;measurement.quality="RAW_WINDOW_FALLBACK";return;}double sst=total-measurement.count*mean*mean,sse=total-(b[0]*rhs[0]+b[1]*rhs[1]+b[2]*rhs[2]);measurement.r2=sst>1e-12?1-fmax(0.0,sse)/sst:NAN;measurement.rms=sqrt(b[1]*b[1]+b[2]*b[2])/sqrt(2.0);measurement.state=MEASUREMENT_COMPLETE;if(measurement.rate<MEASUREMENT_MIN_SAMPLES_PER_CYCLE*measurement.hz)measurement.quality="LOW_SAMPLE_RATE";else if(!isfinite(measurement.r2)||measurement.r2<.60)measurement.quality="LOW_FIT_R2";else measurement.quality="MEASURE_OK"; }
-void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";Serial.println("MEASURE: capturing");}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS){prepareMeasurementTimes();finishMeasurement();if (strcmp(measurement.quality,"MEASURE_OK") != 0) measurement.state=MEASUREMENT_INVALID;Serial.printf("MEASURE: %s samples=%u rate=%.1f r2=%.3f rms=%.6f\n",measurement.quality,(unsigned)measurement.count,measurement.rate,measurement.r2,measurement.rms);} }
+bool fitAtFrequency(double hz, double &r2, double &rms, double &residualRms) {
+  if (measurement.count < 64 || hz <= 0) return false;
+  const uint64_t t0 = measurement.time[0];
+  double normal[3][3] = {{0}}, rhs[3] = {0}, mean = 0;
+  for (size_t i = 0; i < measurement.count; ++i) {
+    const double t = (measurement.time[i] - t0) * 1e-6;
+    const double angle = TWO_PI * hz * t;
+    const double x[3] = {1.0, cos(angle), sin(angle)};
+    const double y = measurement.value[i]; mean += y;
+    for (int row = 0; row < 3; ++row) {
+      rhs[row] += x[row] * y;
+      for (int col = 0; col < 3; ++col) normal[row][col] += x[row] * x[col];
+    }
+  }
+  mean /= measurement.count;
+  double augmented[3][4], beta[3];
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) augmented[row][col] = normal[row][col];
+    augmented[row][3] = rhs[row];
+  }
+  if (!solve3x3(augmented, beta)) return false;
+  double sst = 0, sse = 0;
+  for (size_t i = 0; i < measurement.count; ++i) {
+    const double t = (measurement.time[i] - t0) * 1e-6;
+    const double angle = TWO_PI * hz * t;
+    const double fitted = beta[0] + beta[1] * cos(angle) + beta[2] * sin(angle);
+    const double centered = measurement.value[i] - mean;
+    const double error = measurement.value[i] - fitted;
+    sst += centered * centered; sse += error * error;
+  }
+  if (sst <= 1e-15) return false;
+  r2 = 1.0 - sse / sst;
+  rms = sqrt(beta[1] * beta[1] + beta[2] * beta[2]) / sqrt(2.0);
+  residualRms = sqrt(sse / measurement.count);
+  return isfinite(r2) && isfinite(rms) && isfinite(residualRms);
+}
+void finishMeasurement() {
+  if (measurement.count < 64) {
+    measurement.rms = sampleCount ? sqrt(sumSquares / sampleCount) : 0;
+    measurement.rate = sampleCount * 1000.0 / max(1UL, millis() - windowStart);
+    measurement.state = MEASUREMENT_COMPLETE; measurement.quality = "RAW_WINDOW_FALLBACK"; return;
+  }
+  const uint64_t t0 = measurement.time[0], t1 = measurement.time[measurement.count - 1];
+  if (t1 <= t0) { measurement.state = MEASUREMENT_COMPLETE; measurement.quality = "BAD_TIMESTAMP"; return; }
+  measurement.rate = (measurement.count - 1) / ((t1 - t0) * 1e-6);
+  double mean = 0;
+  for (size_t i = 0; i < measurement.count; ++i) mean += measurement.value[i];
+  mean /= measurement.count;
+  double totalSquares = 0;
+  for (size_t i = 0; i < measurement.count; ++i) {
+    const double centered = measurement.value[i] - mean;
+    totalSquares += centered * centered;
+  }
+  measurement.mean = mean;
+  measurement.rawAcRms = sqrt(totalSquares / measurement.count);
+  if (!fitAtFrequency(measurement.hz, measurement.r2, measurement.rms, measurement.residualRms)) {
+    measurement.state = MEASUREMENT_COMPLETE; measurement.quality = "INVALID_FIT"; return;
+  }
+
+  // Diagnostic only: search nearby frequencies to reveal drive-frequency
+  // mismatch. This estimate never replaces the commanded-frequency fit.
+  measurement.bestFitHz = measurement.hz; measurement.bestFitR2 = measurement.r2;
+  for (int step = -12; step <= 12; ++step) {
+    const double candidate = measurement.hz + step * 0.25;
+    if (candidate < MIN_STIMULATION_FREQUENCY_HZ || candidate > MAX_STIMULATION_FREQUENCY_HZ) continue;
+    double candidateR2, candidateRms, candidateResidual;
+    if (fitAtFrequency(candidate, candidateR2, candidateRms, candidateResidual) && candidateR2 > measurement.bestFitR2) {
+      measurement.bestFitHz = candidate; measurement.bestFitR2 = candidateR2;
+    }
+  }
+  measurement.state = MEASUREMENT_COMPLETE;
+  if (measurement.rate < MEASUREMENT_MIN_SAMPLES_PER_CYCLE * measurement.hz) measurement.quality = "LOW_SAMPLE_RATE";
+  else if (measurement.r2 < .60) measurement.quality = "LOW_FIT_R2";
+  else measurement.quality = "MEASURE_OK";
+}
+void updateMeasurement() { if(measurement.state==MEASUREMENT_SETTLING&&millis()-measurement.startedAt>=MEASUREMENT_SETTLE_MS){measurement.state=MEASUREMENT_CAPTURING;measurement.startedAt=millis();measurement.count=0;measurement.quality="CAPTURING";Serial.println("MEASURE: capturing");}else if(measurement.state==MEASUREMENT_CAPTURING&&millis()-measurement.startedAt>=MEASUREMENT_CAPTURE_MS){prepareMeasurementTimes();finishMeasurement();if (strcmp(measurement.quality,"MEASURE_OK") != 0) measurement.state=MEASUREMENT_INVALID;Serial.printf("MEASURE: %s samples=%u rate=%.1f r2=%.3f rms=%.6f\n",measurement.quality,(unsigned)measurement.count,measurement.rate,measurement.r2,measurement.rms);Serial.printf("FIT_DIAG,axis=%c,target_hz=%.2f,mean_mps2=%.6f,raw_ac_rms_mps2=%.6f,fundamental_rms_mps2=%.6f,residual_rms_mps2=%.6f,r2=%.4f,best_fit_hz=%.2f,best_fit_r2=%.4f\n",MEASUREMENT_AXIS,measurement.hz,measurement.mean,measurement.rawAcRms,measurement.rms,measurement.residualRms,measurement.r2,measurement.bestFitHz,measurement.bestFitR2);} }
 uint8_t probeI2C(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission();
