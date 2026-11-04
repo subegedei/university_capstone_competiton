@@ -179,7 +179,9 @@ export default function Dashboard() {
       {view.result && view.result.estimatedResonanceHz !== null && <div className="result"><span>피크 {view.result.estimatedResonanceHz} Hz</span><span>환산 변위 {(view.result.peakDisplacementRmsM * 1e6).toFixed(2)} μm RMS</span><span>피크 대비 중앙값 차이 {(view.result.peakProminence * 100).toFixed(0)}%</span></div>}
       {view.result?.warnings.map((warning) => <p className="warning" key={warning}>{warning}</p>)}
     </section>
-    <footer className="dashboard-footer"><span>숨결톡톡 <small>BREATH TOK-TOK</small></span></footer>
+    <footer className="dashboard-footer"><span>숨결톡톡 <small>BREATH TOK-TOK</small></span>
+      {!outputConfirmed && <p className="amp-warning" role="status">앰프 연결이 확인되지 않았습니다. 먼저 ZK-502C 앰프를 블루투스로 연결해 주세요.</p>}
+    </footer>
   </main>;
 }
 

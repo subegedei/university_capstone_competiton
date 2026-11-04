@@ -194,6 +194,7 @@ progress { accent-color: var(--blue); }.result { background: var(--soft); border
 .chart-empty { display: grid; justify-items: center; gap: 8px; min-height: 220px; padding: 42px 20px; border: 1px dashed #b9cfc1; border-radius: 16px; background: #fafbf6; }.chart-empty svg { width: 32px; color: var(--blue); }
 .frequency-markers { display: flex; width: min(460px, 100%); justify-content: space-between; margin-top: 16px; color: var(--muted); font-size: 12px; }.frequency-markers small { font-size: 9px; }
 .dashboard-footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; padding: 24px 6px 0; }.dashboard-footer > span { color: var(--blue); font-weight: 800; }.dashboard-footer small { color: var(--muted); }.dashboard-footer .footnote { max-width: 680px; margin: 0; text-align: right; }
+.amp-warning { margin: 0; color: #c62828; font-size: 14px; font-weight: 800; text-align: right; }
 button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #eda37e; outline-offset: 3px; }
 @media (max-width: 800px) {
   .shell { width: min(600px, calc(100% - 32px)); padding-top: 22px; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -203,7 +204,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
   .hero-card { min-height: 176px; padding: 25px; }.hero-card strong { font-size: 56px; }.status { text-align: left; }
   .layout { grid-template-columns: 1fr; }.panel { padding: 21px; }.setting-preview strong { font-size: 48px; }.wave-art { height: 62px; }
   .preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.preset { min-height: 145px; }
-  .dashboard-footer { flex-direction: column; }.dashboard-footer .footnote { text-align: left; }
+  .dashboard-footer { flex-direction: column; }.dashboard-footer .footnote { text-align: left; }.amp-warning { text-align: left; }
 }
 @media (max-width: 390px) { .shell { width: calc(100% - 24px); }.panel { padding: 17px; }.channels { align-items: flex-start; flex-direction: column; }.channel { margin-left: 0; }.setting-preview { padding: 18px; }.preset-grid { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition-duration: 0s !important; } }
