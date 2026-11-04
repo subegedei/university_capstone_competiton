@@ -99,7 +99,12 @@ export class MeasurementSession {
   private receive = (data: Telemetry) => {
     this.receivedAt = performance.now();
     this.patch({ telemetry: data });
-    if (data.status === "error") { void this.stop(data.error || "ESP32 센서 오류로 정지했습니다."); return; }
+    if (data.status === "error") {
+      const message = data.error || "ESP32 센서 오류를 확인하세요.";
+      if (this.view.sweeping) void this.stop(message);
+      else this.patch({ message: message + " · 오디오 출력은 별도로 유지됩니다." });
+      return;
+    }
     const collector = this.collect;
     if (collector && performance.now() >= collector.after && (data.imu.measurement.state === "complete" || data.imu.measurement.state === "invalid") &&
       data.imu.measurement.frequencyHz === collector.hz) {
@@ -120,9 +125,14 @@ export class MeasurementSession {
     try {
       const info = await client.connect(this.receive, () => {
         if (this.client !== client) return;
-        this.cancel?.abort(); this.audio.stop(); this.clearTimers(); this.collect = undefined; this.sessionId = "";
+        const audioOnlyActive = this.view.playing && !this.view.sweeping;
+        this.cancel?.abort();
+        if (audioOnlyActive) { clearInterval(this.heartbeat); this.heartbeat = undefined; }
+        else { this.audio.stop(); this.clearTimers(); }
+        this.collect = undefined; this.sessionId = "";
         this.client = undefined;
-        this.patch({ mode: "offline", info: null, telemetry: null, playing: false, sweeping: false, busy: false, message: "ESP32 연결이 해제됐습니다. 장치 출력을 확인하세요." });
+        this.patch({ mode: "offline", info: null, telemetry: null, playing: audioOnlyActive, sweeping: false, busy: false,
+          message: audioOnlyActive ? "ESP32 연결은 끊겼지만 오디오 출력은 계속됩니다." : "ESP32 연결이 해제됐습니다." });
       }, (message) => this.patch({ message }));
       if (epoch !== this.epoch || this.disposed) { client.disconnect(); return; }
       this.patch({
@@ -140,9 +150,14 @@ export class MeasurementSession {
     this.epoch++;
     if (this.sessionId) await this.stop("연결 해제를 위해 출력을 정지합니다.");
     const stopWarning = this.view.message.startsWith("정지 확인 실패") ? this.view.message : "";
-    this.cancel?.abort(); this.audio.stop(); this.clearTimers(); this.collect = undefined;
+    const audioOnlyActive = this.view.playing && !this.view.sweeping;
+    this.cancel?.abort();
+    if (audioOnlyActive) { clearInterval(this.heartbeat); this.heartbeat = undefined; }
+    else { this.audio.stop(); this.clearTimers(); }
+    this.collect = undefined;
     const client = this.client; this.client = undefined; client?.disconnect();
-    this.patch({ mode: "offline", info: null, telemetry: null, playing: false, sweeping: false, busy: false, message: stopWarning || "연결이 해제되었습니다." });
+    this.patch({ mode: "offline", info: null, telemetry: null, playing: audioOnlyActive, sweeping: false, busy: false,
+      message: stopWarning || (audioOnlyActive ? "센서 연결이 해제됐고 오디오 출력은 계속됩니다." : "연결이 해제되었습니다.") });
   }
 
   selectOutput() { return this.audio.selectOutput(); }
@@ -150,15 +165,6 @@ export class MeasurementSession {
     await this.audio.prepare();
     // Never exceed the device-safe sweep range, including during a routing check.
     this.audio.start(35, 10, 2, area);
-  }
-
-  private ensureReady(settings: Settings, requirePower = true, requireImu = true) {
-    if (!this.client || this.view.mode === "offline" || !this.view.telemetry || performance.now() - this.receivedAt > 4000) {
-      throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");
-    }
-    if (this.view.telemetry.status === "error") throw new Error(this.view.telemetry.error || "ESP32 센서 오류를 확인하세요.");
-    if ((requireImu && !this.view.telemetry.imu.ready) || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "MPU6050 가속도 센서가 준비돼야 합니다.");
-    if (settings.intensityPercent <= 0) throw new Error("출력 레벨을 0%보다 높게 설정하세요.");
   }
 
   private async prepareSweepSensor(settings: Settings, signal: AbortSignal) {
@@ -189,10 +195,11 @@ export class MeasurementSession {
     const signal = this.cancel.signal;
     this.patch({ busy: true });
     try {
-      this.ensureReady(settings, false, false);
       this.settings = settings; this.area = area;
-      if (this.view.mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(settings.frequencyHz, settings.intensityPercent, settings.durationSeconds, area); }
-      this.patch({ playing: true, message: this.view.mode === "demo" ? "시연을 시작했습니다." : "ZK-502C에 Bluetooth 오디오 진동음을 보내고 있습니다." });
+      await this.audio.prepare();
+      if (signal.aborted) return;
+      this.audio.start(settings.frequencyHz, settings.intensityPercent, settings.durationSeconds, area);
+      this.patch({ playing: true, message: "선택한 오디오 출력으로 진동음을 재생하고 있습니다." });
       this.deadline = setTimeout(() => { void this.stop("설정 시간이 끝나 출력을 정지합니다."); }, settings.durationSeconds * 1000);
     } catch (error) {
       if (!signal.aborted) this.patch({ message: this.error(error) });
@@ -205,7 +212,7 @@ export class MeasurementSession {
     if (this.view.busy || this.view.sweeping || !this.view.playing || this.stopping) return;
     this.patch({ busy: true });
     try {
-      if (this.view.mode === "device") this.audio.update(settings.frequencyHz, settings.intensityPercent);
+      this.audio.update(settings.frequencyHz, settings.intensityPercent);
       this.settings = { ...settings, durationSeconds: this.settings.durationSeconds };
       this.patch({ message: "주파수와 출력 레벨을 적용했습니다. 종료 시각은 유지됩니다." });
     } catch (error) {

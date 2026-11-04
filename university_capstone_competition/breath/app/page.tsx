@@ -113,7 +113,7 @@ export default function Dashboard() {
 
     <section className="home-summary hero-card" hidden={screen !== "home"}>
       <div><p className="eyebrow">SESSION OVERVIEW</p><h2>{view.playing && !view.sweeping ? "남은 시간" : "설정 시간"}</h2><strong>{view.playing && !view.sweeping && remaining !== null ? time(remaining) : time(minutes * 60)}</strong><p className="hero-note">선택 설정 · {frequency} Hz · {intensity}% · {areaLabel(area)}</p></div>
-      <div className="status"><span className={"badge " + (view.playing ? "running" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? "작동 중" : "대기 중"}</span><p>{view.message}</p>{!connected && <button className="summary-link" onClick={() => setScreen("settings")}>장치 연결이 필요합니다 · 설정으로 이동 →</button>}</div>
+      <div className="status"><span className={"badge " + (view.playing ? "running" : "idle")}>{view.sweeping ? "스윕 측정 중" : view.playing ? "오디오 출력 중" : "대기 중"}</span><p>{view.message}</p>{!connected && !view.playing && <button className="summary-link" onClick={() => setScreen("settings")}>센서 스윕에는 ESP32 연결이 필요합니다 · 설정 →</button>}</div>
     </section>
 
     <section className="hero-card" hidden={screen !== "analysis"}>
@@ -133,9 +133,9 @@ export default function Dashboard() {
         <Slider label="출력 레벨" value={intensity} unit="%" min={0} max={100} step={5} disabled={view.sweeping || view.busy} onChange={setIntensity} />
         <Slider label="작동 시간" value={minutes} unit="분" min={1} max={30} step={1} disabled={view.playing || view.busy} onChange={setMinutes} />
         <p className="helper">상엽은 왼쪽 채널, 하엽은 오른쪽 채널로 보냅니다. 둘 다를 선택하면 양쪽에 같은 주파수를 보냅니다.</p>
-        <div className="actions"><button className="start" disabled={!connected || locked || intensity === 0} onClick={() => void session.current?.start(settings, area)}><UiIcon kind="play" /><span>진동 시작<small>START</small></span></button>
-          <button className="stop" disabled={!connected} onClick={() => { void session.current?.stop(); }}><UiIcon kind="stop" /><span>정지<small>STOP</small></span></button></div>
-        <p className="helper">작동 중 주파수·출력 레벨을 바꾼 뒤 설정 적용을 누르세요. 종료 시각은 유지됩니다.</p>
+        <div className="actions"><button className="start" disabled={locked || intensity === 0} onClick={() => void session.current?.start(settings, area)}><UiIcon kind="play" /><span>진동 시작<small>START</small></span></button>
+          <button className="stop" disabled={!view.playing} onClick={() => { void session.current?.stop(); }}><UiIcon kind="stop" /><span>정지<small>STOP</small></span></button></div>
+        <p className="helper">출력 주파수와 레벨은 브라우저 오디오로 제어합니다. 센서값은 스윕 측정에만 사용됩니다.</p>
       </article>
 
       <article className="panel memory" id="memory" aria-labelledby="memory-heading" hidden={screen !== "memory"}>
