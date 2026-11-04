@@ -161,12 +161,6 @@ export class MeasurementSession {
   }
 
   selectOutput() { return this.audio.selectOutput(); }
-  async testAudio(area: StimulationArea) {
-    await this.audio.prepare();
-    // Never exceed the device-safe sweep range, including during a routing check.
-    this.audio.start(35, 10, 2, area);
-  }
-
   private async prepareSweepSensor(settings: Settings, signal: AbortSignal) {
     if (!this.client || !this.view.telemetry || performance.now() - this.receivedAt > 4000) {
       throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");

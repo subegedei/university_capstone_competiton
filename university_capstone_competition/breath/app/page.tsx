@@ -72,12 +72,6 @@ export default function Dashboard() {
     } catch (error) { setAudioMessage(error instanceof Error ? error.message : "오디오 출력을 선택할 수 없습니다."); }
     finally { setAudioBusy(false); }
   }
-  async function testAudio() {
-    setAudioBusy(true);
-    try { await session.current?.testAudio(area); setAudioMessage("35 Hz · 10% 오디오 경로 시험음을 2초 동안 보냅니다."); }
-    catch (error) { setAudioMessage(error instanceof Error ? error.message : "시험음 오류"); }
-    finally { setTimeout(() => setAudioBusy(false), 2200); }
-  }
   function savePreset(index: number) {
     const next = [...presets];
     next[index] = { name: `M${index + 1}`, frequency, intensity, minutes, area };

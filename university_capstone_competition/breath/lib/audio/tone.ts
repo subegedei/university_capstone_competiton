@@ -50,7 +50,7 @@ export class TonePlayer {
       oscillator.type = "sine";
       oscillator.frequency.setValueAtTime(hz, context.currentTime);
       gain.gain.setValueAtTime(0, context.currentTime);
-      gain.gain.linearRampToValueAtTime(intensity / 100 * 0.35, context.currentTime + 0.04);
+      gain.gain.linearRampToValueAtTime(intensity / 100 * 0.8, context.currentTime + 0.04);
       panner.pan.setValueAtTime(panValue, context.currentTime);
       oscillator.connect(gain); gain.connect(panner); panner.connect(context.destination);
       oscillator.start(); oscillator.stop(context.currentTime + durationSeconds);
@@ -64,7 +64,7 @@ export class TonePlayer {
     for (const oscillator of this.oscillators) oscillator.frequency.setValueAtTime(hz, this.context.currentTime);
     for (const gain of this.gains) {
       gain.gain.cancelScheduledValues(this.context.currentTime);
-      gain.gain.setTargetAtTime(intensity / 100 * 0.35, this.context.currentTime, 0.015);
+      gain.gain.setTargetAtTime(intensity / 100 * 0.8, this.context.currentTime, 0.015);
     }
   }
   stop() {
