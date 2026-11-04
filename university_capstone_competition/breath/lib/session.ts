@@ -242,9 +242,12 @@ export class MeasurementSession {
     try {
       const sweepSettings = { ...settings, frequencyHz: coarseSweepFrequencies[0], durationSeconds: SWEEP_DURATION_SECONDS };
       this.settings = sweepSettings; this.area = area; this.sessionId = crypto.randomUUID();
+      if (mode === "demo") await this.audio.prepare();
       await this.prepareSweepSensor(sweepSettings, signal);
       if (signal.aborted) return;
-      if (mode === "device") { await this.audio.prepare(); if (signal.aborted) return; this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area); }
+      if (mode === "device") await this.audio.prepare();
+      if (signal.aborted) return;
+      this.audio.start(sweepSettings.frequencyHz, settings.intensityPercent, SWEEP_DURATION_SECONDS, area);
       this.deadline = setTimeout(() => { void this.stop("스윕 제한 시간에 도달했습니다."); }, SWEEP_DURATION_SECONDS * 1000);
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 탐색합니다." });
       const expectedSamples = coarseSweepFrequencies.length + 2;
@@ -258,7 +261,7 @@ export class MeasurementSession {
           const pointStartedAt = performance.now();
           if (samples.length) {
             this.settings = { ...sweepSettings, frequencyHz: hz };
-            if (mode === "device") this.audio.update(hz, settings.intensityPercent);
+            this.audio.update(hz, settings.intensityPercent);
           }
           this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / expectedSamples) });
           let collector: { hz: number; after: number; windows: Telemetry[]; invalid?: Telemetry } | undefined;
