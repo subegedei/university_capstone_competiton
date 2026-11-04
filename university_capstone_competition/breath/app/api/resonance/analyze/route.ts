@@ -9,7 +9,7 @@ type SweepResult = {
   peakDisplacementRmsM: number;
   peakScore: number;
   peakProminence: number;
-  method: "displacement-rms" | "supply-current-normalized-displacement-rms";
+  method: "fundamental-velocity-rms";
   warnings: string[];
   samples: SweepSample[];
 };
@@ -55,7 +55,7 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   const displacements = ordered.map(displacementRmsM);
   if (Math.max(...displacements) <= 0) throw new Error("No measurable vibration response was recorded.");
   const hasCurrent = hasUsableSupplyCurrent(ordered);
-  const scores = ordered.map((sample) => responseScore(sample, hasCurrent));
+  const scores = ordered.map(responseScore);
   const interior = ordered.map((_, index) => index).filter((index) => index > 0 && index < ordered.length - 1 && scores[index] > scores[index - 1] && scores[index] > scores[index + 1]);
   const peakIndex = interior.length ? interior.reduce((best, index) => scores[index] > scores[best] ? index : best) : -1;
   const displayIndex = peakIndex >= 0 ? peakIndex : peakResponseIndex(ordered);
@@ -69,8 +69,9 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
   if (prominence < 0.1) warnings.push("응답 곡선이 평탄하여 뚜렷한 피크를 확인하기 어렵습니다.");
   if (scores.filter((score) => Math.abs(score - peakScore) <= Math.max(peakScore, 1e-12) * 1e-6).length > 1) warnings.push("같은 보정 점수의 피크가 여러 개입니다. 가장 낮은 주파수를 표시합니다.");
   if (ordered[0].hz !== MIN_STIMULATION_FREQUENCY_HZ || ordered[ordered.length - 1].hz !== MAX_STIMULATION_FREQUENCY_HZ) warnings.push("25–40 Hz 양 끝점이 모두 수집되지 않았습니다.");
-  if (hasCurrent) warnings.push("INA226은 앰프 공급 전류를 읽습니다. 이 점수는 코일 힘이 아닌 공급전류로 정규화한 효율 지표입니다.");
-  else warnings.push("일부 INA226 전류값이 없거나 너무 작아 전류 정규화를 생략하고, 주파수 제곱 보정 변위로 피크를 계산했습니다.");
+  warnings.push(hasCurrent
+    ? "피크 후보는 기본파 속도 RMS로 정했습니다. INA226 앰프 공급 전류는 후보 순위에 사용하지 않았습니다."
+    : "INA226 전류값이 없거나 작아도 피크 후보는 기본파 속도 RMS로 정합니다.");
 
   return {
     estimatedResonanceHz: peak.hz,
@@ -79,7 +80,7 @@ function analyseSweep(samples: SweepSample[]): SweepResult {
     peakDisplacementRmsM: peakDisplacement,
     peakScore,
     peakProminence: round(prominence, 4),
-    method: hasCurrent ? "supply-current-normalized-displacement-rms" : "displacement-rms",
+    method: "fundamental-velocity-rms",
     warnings,
     samples: ordered,
   };

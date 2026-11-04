@@ -34,6 +34,13 @@ function delay(ms: number, signal: AbortSignal) {
   });
 }
 
+async function waitForMeasurement(collector: { windows: Telemetry[]; invalid?: Telemetry }, timeoutMs: number, signal: AbortSignal) {
+  const deadline = performance.now() + timeoutMs;
+  while (!collector.windows.length && !collector.invalid && performance.now() < deadline) {
+    await delay(Math.min(100, Math.max(1, deadline - performance.now())), signal);
+  }
+}
+
 export class MeasurementSession {
   private client?: DeviceClient;
   private audio = new TonePlayer();
@@ -44,7 +51,7 @@ export class MeasurementSession {
   private heartbeatPending = false;
   private commandTail: Promise<void> = Promise.resolve();
   private receivedAt = 0;
-  private collect?: { hz: number; after: number; windows: Telemetry[] };
+  private collect?: { hz: number; after: number; windows: Telemetry[]; invalid?: Telemetry };
   private settings: Settings = { frequencyHz: 30, intensityPercent: 20, durationSeconds: 60 };
   private sessionId = "";
   private area: StimulationArea = "both";
@@ -93,8 +100,11 @@ export class MeasurementSession {
     if (data.status === "error") { void this.stop(data.error || "ESP32 센서 오류로 정지했습니다."); return; }
     const collector = this.collect;
     if (collector && performance.now() >= collector.after && data.imu.measurement.state === "complete" &&
-      data.imu.measurement.frequencyHz === collector.hz && data.imu.measurement.fundamentalAccelerationRms !== null) {
-      collector.windows.push(data);
+      data.imu.measurement.frequencyHz === collector.hz) {
+      const measurement = data.imu.measurement;
+      if (measurement.quality === "MEASURE_OK" && measurement.fundamentalAccelerationRms !== null &&
+        measurement.sampleRateHz >= 200 && measurement.sampleCount >= 64) collector.windows.push(data);
+      else collector.invalid = data;
     }
   };
 
@@ -140,12 +150,12 @@ export class MeasurementSession {
     this.audio.start(35, 10, 2, area);
   }
 
-  private ensureReady(settings: Settings) {
+  private ensureReady(settings: Settings, requirePower = true) {
     if (!this.client || this.view.mode === "offline" || !this.view.telemetry || performance.now() - this.receivedAt > 4000) {
       throw new Error("ESP32의 최신 센서 데이터를 먼저 수신해 주세요.");
     }
     if (this.view.telemetry.status === "error") throw new Error(this.view.telemetry.error || "ESP32 센서 오류를 확인하세요.");
-    if (!this.view.telemetry.imu.ready || !this.view.telemetry.power.ready) throw new Error("두 센서가 모두 준비돼야 합니다.");
+    if (!this.view.telemetry.imu.ready || (requirePower && !this.view.telemetry.power.ready)) throw new Error(requirePower ? "두 센서가 모두 준비돼야 합니다." : "BNO085 가속도 센서가 준비돼야 합니다.");
     if (settings.intensityPercent <= 0) throw new Error("출력 레벨을 0%보다 높게 설정하세요.");
   }
 
@@ -204,7 +214,7 @@ export class MeasurementSession {
     let failureMessage = "";
     this.patch({ busy: true, result: null, resultMode: mode === "demo" ? "demo" : "device", samples: [], progress: 0 });
     try {
-      this.ensureReady(settings);
+      this.ensureReady(settings, false);
       if (!this.view.telemetry?.imu.ready || this.view.telemetry.imu.sampleRateHz < 200) throw new Error("스윕에는 BNO085 선형 가속도 200Hz 이상이 필요합니다.");
       const sweepSettings = { ...settings, frequencyHz: coarseSweepFrequencies[0], durationSeconds: SWEEP_DURATION_SECONDS };
       this.settings = sweepSettings; this.area = area;
@@ -214,10 +224,8 @@ export class MeasurementSession {
       this.patch({ playing: true, sweeping: true, message: "1단계: 25–40 Hz를 3 Hz 간격으로 빠르게 탐색합니다." });
       const samples: SweepSample[] = [];
       const settlingMs = mode === "demo" ? 200 : DEVICE_SETTLING_MS;
-      // Device telemetry arrives once per second and is fragmented into ATT
-      // notifications.  The old 2.6-second wait had almost no margin after
-      // the device's 0.8 + 1.6-second measurement cycle, so a valid final
-      // frame could arrive just after the collector was cleared.
+      // This is a maximum wait, not a delay applied to every point. Advance
+      // as soon as the complete measurement telemetry arrives.
       const measuringMs = mode === "demo" ? 450 : DEVICE_RESULT_WAIT_MS;
       const measure = async (frequencies: number[]) => {
         for (const hz of frequencies) {
@@ -227,22 +235,44 @@ export class MeasurementSession {
             if (mode === "device") this.audio.update(hz, settings.intensityPercent);
           }
           this.patch({ sweepHz: hz, progress: Math.min(0.95, samples.length / 11) });
-          let collector: { hz: number; after: number; windows: Telemetry[] } | undefined;
+          let collector: { hz: number; after: number; windows: Telemetry[]; invalid?: Telemetry } | undefined;
           for (let attempt = 1; attempt <= MAX_MEASUREMENT_ATTEMPTS; attempt++) {
-            if (mode === "device") await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
+            if (mode === "device") {
+              // Let a temporarily unavailable IMU recover before requesting a
+              // new capture. A rejected measure ACK must not disconnect BLE.
+              if (!this.view.telemetry?.imu.ready) {
+                this.patch({ message: hz + " Hz 가속도 센서 복구를 기다립니다." });
+                await delay(1500, signal);
+              }
+              if (!this.view.telemetry?.imu.ready) {
+                if (attempt < MAX_MEASUREMENT_ATTEMPTS) continue;
+                throw new Error("BNO085 가속도 센서가 복구되지 않아 스윕을 중지했습니다.");
+              }
+              try {
+                await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
+              } catch (error) {
+                if (attempt < MAX_MEASUREMENT_ATTEMPTS && this.error(error).includes("BNO085 must be ready")) {
+                  this.patch({ message: hz + " Hz 센서 응답이 늦어 재시도합니다." });
+                  await delay(1500, signal);
+                  continue;
+                }
+                throw error;
+              }
+            }
+            else await this.send("measure", { ...sweepSettings, frequencyHz: hz }, this.sessionId);
             if (signal.aborted) return;
             collector = { hz, after: performance.now() + settlingMs, windows: [] };
             this.collect = collector;
-            await delay(settlingMs + measuringMs, signal);
+            await waitForMeasurement(collector, settlingMs + measuringMs, signal);
             this.collect = undefined;
             if (collector.windows.length) break;
             if (attempt < MAX_MEASUREMENT_ATTEMPTS) {
-              this.patch({ message: hz + " Hz 측정값이 늦어 재시도합니다 (" + (attempt + 1) + "/" + MAX_MEASUREMENT_ATTEMPTS + ")." });
+              this.patch({ message: hz + " Hz 측정값이 없거나 품질 기준에 못 미쳐 재시도합니다 (" + (attempt + 1) + "/" + MAX_MEASUREMENT_ATTEMPTS + ")." });
             }
           }
           if (!collector?.windows.length) {
-            const measurement = this.view.telemetry?.imu.measurement;
-            if (measurement?.frequencyHz === hz && measurement.state === "invalid") {
+            const measurement = (collector?.invalid ?? this.view.telemetry)?.imu.measurement;
+            if (measurement?.frequencyHz === hz && (measurement.state === "invalid" || measurement.state === "complete")) {
               const r2 = measurement.fitR2 === null ? "—" : measurement.fitR2.toFixed(3);
               throw new Error(hz + " Hz 기본파 측정 실패: " + (measurement.quality ?? "UNKNOWN") + " (R²=" + r2 + ", " + measurement.sampleRateHz.toFixed(1) + " Hz)");
             }

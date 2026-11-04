@@ -32,6 +32,7 @@ struct OutputState {
 struct Frame { uint32_t generation; char text[1400]; };
 bool imuFound = false, imuReady = false, powerReady = false, sweeping = false;
 bool inaConfigured = false;
+uint8_t powerReadFailures = 0;
 uint8_t bnoAddress = 0, inaAddress = 0;
 uint32_t lastSensorRetry = 0, imuInitAt = 0;
 constexpr uint32_t SENSOR_RETRY_MS = 5000;
@@ -139,16 +140,21 @@ bool writeRegister(uint8_t address, uint8_t reg, uint16_t value) {
   return Wire.endTransmission() == 0;
 }
 void readPower() {
-  uint16_t bus, shunt, manufacturer, die;
-  powerReady = inaConfigured && inaAddress && readRegister(inaAddress, 0xFE, manufacturer) && manufacturer == 0x5449 &&
-    readRegister(inaAddress, 0xFF, die) && (die & 0xFFF0) == 0x2260 &&
-    readRegister(inaAddress, 0x02, bus) && readRegister(inaAddress, 0x01, shunt);
-  if (powerReady) {
+  uint16_t bus, shunt;
+  // Identity is checked during discovery. Re-reading both ID registers every
+  // second quadruples I2C work and makes a single transient read look fatal.
+  const bool valid = inaConfigured && inaAddress && readRegister(inaAddress, 0x02, bus) &&
+    readRegister(inaAddress, 0x01, shunt);
+  powerReady = valid;
+  if (valid) {
+    powerReadFailures = 0;
     voltage = bus * 0.00125f;
     current = SHUNT_OHMS > 0 ? int16_t(shunt) * 0.0000025f / SHUNT_OHMS : 0;
   } else if (inaConfigured) {
-    inaConfigured = false; inaAddress = 0;
-    Serial.println("INA226: read failed; will retry configuration");
+    if (++powerReadFailures >= 3) {
+      inaConfigured = false; inaAddress = 0; powerReadFailures = 0;
+      Serial.println("INA226: three consecutive reads failed; retrying configuration");
+    } else Serial.println("INA226: transient read failure; next window will retry");
   }
 }
 void resetWindow() { sumSquares = 0; sampleCount = 0; windowStart = millis(); }
@@ -289,7 +295,9 @@ void handleCommand(const Frame &frame) {
 void telemetry() {
   readPower();
   imuReady = imuFound && lastImu != 0 && millis() - lastImu < 500;
-  if (!imuReady || !powerReady) stopOutput();
+  // Browser Bluetooth audio is independent of INA226. For the optional DAC
+  // build, retain the existing fail-safe when either sensor is unavailable.
+  if (!imuReady || (OUTPUT_ENABLED && !powerReady)) stopOutput();
   OutputState state = outputSnapshot();
   JsonDocument doc;
   doc["type"] = "telemetry"; doc["protocolVersion"] = 3; doc["bootId"] = bootId;

@@ -62,7 +62,8 @@ export default function Dashboard() {
   const settings = { frequencyHz: frequency, intensityPercent: intensity, durationSeconds: minutes * 60 };
   const telemetry = view.telemetry;
   const connected = view.mode !== "offline";
-  const ready = connected && !!telemetry && telemetry.status !== "error" && telemetry.imu.ready && telemetry.power.ready && (view.mode === "demo" || outputConfirmed);
+  const sensorReady = connected && !!telemetry && telemetry.status !== "error" && telemetry.imu.ready && (view.mode === "demo" || outputConfirmed);
+  const ready = sensorReady && !!telemetry?.power.ready;
   const locked = view.busy || view.playing || audioBusy;
 
   async function selectOutput() {
@@ -178,7 +179,8 @@ export default function Dashboard() {
     <section className="panel sweep" id="sweep" aria-labelledby="sweep-heading" hidden={screen !== "analysis"}>
       {view.samples.length >= 3 && !view.result && <button className="secondary" disabled={view.busy || view.playing} onClick={() => void session.current?.retryAnalysis()}>수집 데이터 다시 분석</button>}
       <div className="panel-title"><div><p className="eyebrow">FREQUENCY RESPONSE</p><h2 id="sweep-heading">주파수 스윕 · 25–40 Hz</h2></div><div className="header-actions"><button className="secondary" disabled={!view.samples.length || view.busy} onClick={() => session.current?.exportResult()}>결과 저장</button>
-        <button className="start" disabled={!ready || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
+        <button className="start" disabled={!sensorReady || locked || intensity === 0 || !telemetry?.imu.ready || telemetry.imu.sampleRateHz < 200} onClick={() => void session.current?.sweep(settings, area)}>스윕 측정</button>{view.playing && <button className="secondary" onClick={() => void session.current?.stop()}>정지</button>}</div></div>
+      {telemetry && !telemetry.power.ready && <p className="warning">INA226 전류 센서 수신 대기 중입니다. 가속도 스윕은 진행되며 전류·전력 값은 비워 둡니다.</p>}
       <p className="helper">먼저 25·28·31·34·37·40 Hz를 빠르게 탐색하고, 가장 높은 응답 주변만 1 Hz 간격으로 재측정합니다. 45 Hz 이상은 사용하지 않습니다.</p>
       <div className="progress-label"><span>{view.sweeping ? view.sweepHz + " Hz 측정 중" : view.samples.length ? view.samples.length + "개 구간 수집" : "측정 대기"}</span><span>{Math.round(view.progress * 100)}%</span></div>
       <progress max={1} value={view.progress} aria-label="스윕 측정 진행률" />

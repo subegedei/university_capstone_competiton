@@ -25,6 +25,10 @@ export class DemoClient implements DeviceClient {
       this.status = command.command === "sweep" ? "sweeping" : "running";
       this.deadline = performance.now() + command.durationSeconds * 1000;
     }
+    if (command.command === "measure" && this.status === "idle") {
+      this.status = "sweeping";
+      this.deadline = performance.now() + command.durationSeconds * 1000;
+    }
     this.emit();
   }
   private emit() {

@@ -4,7 +4,7 @@ export const BLE_CONTROL_UUID = "f3f1a002-7c5b-4f18-b0bb-7d9cb9d00001";
 export const BLE_INFO_UUID = "f3f1a003-7c5b-4f18-b0bb-7d9cb9d00001";
 export const PROTOCOL_VERSION = 3;
 export const COMMAND_TIMEOUT_MS = 5000;
-export const TELEMETRY_TIMEOUT_MS = 4000;
+export const TELEMETRY_TIMEOUT_MS = 6000;
 // Hardware-safe operating envelope. Keep this guard in the browser protocol
 // as well as in the ESP32 firmware so a stale UI cannot request 45 Hz.
 export const MIN_STIMULATION_FREQUENCY_HZ = 25;

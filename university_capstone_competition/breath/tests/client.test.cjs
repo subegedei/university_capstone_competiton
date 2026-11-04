@@ -63,8 +63,12 @@ test("GATT handshake, ACK, duplicate telemetry filtering and reboot disconnect",
   } finally { client.disconnect(); }
 });
 test("command rejection never becomes success", async () => {
-  rig(false); const client = new BreathBleClient();
-  try { await client.connect(() => {}, () => {}, () => {}); await assert.rejects(client.send(fixture.control), /거절/); }
+  const mock = rig(false); const client = new BreathBleClient();
+  try {
+    await client.connect(() => {}, () => {}, () => {});
+    await assert.rejects(client.send(fixture.control), /거절/);
+    assert.equal(mock.device.gatt.connected, true);
+  }
   finally { client.disconnect(); }
 });
 test("a malformed telemetry line is skipped without dropping the BLE connection", async () => {

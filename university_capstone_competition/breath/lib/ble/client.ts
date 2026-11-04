@@ -79,7 +79,7 @@ export class BreathBleClient implements DeviceClient {
       await this.telemetry.startNotifications();
       this.lastTelemetryAt = performance.now();
       this.watchdog = setInterval(() => {
-        if (performance.now() - this.lastTelemetryAt > TELEMETRY_TIMEOUT_MS) this.fail("ESP32 센서 수신이 4초 이상 멈췄습니다. 연결을 해제합니다. 장치의 자동 정지를 확인하세요.");
+        if (performance.now() - this.lastTelemetryAt > TELEMETRY_TIMEOUT_MS) this.fail("ESP32 센서 수신이 6초 이상 멈췄습니다. 연결을 해제합니다. 장치의 자동 정지를 확인하세요.");
       }, 500);
       return info;
     } catch (error) { this.disconnect(); throw error; }
@@ -103,10 +103,16 @@ export class BreathBleClient implements DeviceClient {
         if (!this.device?.gatt?.connected) throw new Error("ESP32 연결이 해제되었습니다.");
         await control.writeValueWithResponse(bytes as Uint8Array<ArrayBuffer>);
       }
-      await confirmed;
     } catch (error) {
       this.rejectPending(error instanceof Error ? error : new Error("BLE 쓰기 실패"));
       this.fail(error instanceof Error ? error.message : "BLE 쓰기 실패");
+      throw error;
+    }
+    // An ACK rejection is an application-level response, not a broken link.
+    // Only failed writes/ACK timeouts should tear down the connection.
+    try { await confirmed; }
+    catch (error) {
+      if (error instanceof Error && error.message.includes("시간 초과")) this.fail(error.message);
       throw error;
     }
   }

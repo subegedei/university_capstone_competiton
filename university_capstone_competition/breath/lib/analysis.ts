@@ -17,16 +17,14 @@ export function hasUsableSupplyCurrent(samples: SweepSample[]): boolean {
   return samples.every((sample) => sample.currentA !== null && sample.currentA >= 0.001);
 }
 
-export function responseScore(sample: SweepSample, normalizeBySupplyCurrent: boolean): number {
+export function responseScore(sample: SweepSample): number {
   // The candidate rule uses the fundamental velocity component. INA226 reads
   // amplifier supply current, not coil current, so it must not alter ranking.
-  void normalizeBySupplyCurrent;
   return sample.accelerationRms / (2 * Math.PI * sample.hz);
 }
 
 export function peakResponseIndex(samples: SweepSample[]): number {
-  const normalizeBySupplyCurrent = hasUsableSupplyCurrent(samples);
-  return samples.reduce((best, sample, index) => responseScore(sample, normalizeBySupplyCurrent) > responseScore(samples[best], normalizeBySupplyCurrent) ? index : best, 0);
+  return samples.reduce((best, sample, index) => responseScore(sample) > responseScore(samples[best]) ? index : best, 0);
 }
 
 // An end point cannot establish a resonance peak: there is no measurement on
@@ -34,11 +32,10 @@ export function peakResponseIndex(samples: SweepSample[]): number {
 // sweep centred on the best *interior* coarse point instead of chasing 40 Hz.
 export function refinementCenterIndex(samples: SweepSample[]): number {
   if (samples.length < 3) return peakResponseIndex(samples);
-  const normalizeBySupplyCurrent = hasUsableSupplyCurrent(samples);
   return samples.slice(1, -1).reduce(
     (best, sample, relativeIndex) => {
       const index = relativeIndex + 1;
-      return responseScore(sample, normalizeBySupplyCurrent) > responseScore(samples[best], normalizeBySupplyCurrent) ? index : best;
+      return responseScore(sample) > responseScore(samples[best]) ? index : best;
     },
     1,
   );
